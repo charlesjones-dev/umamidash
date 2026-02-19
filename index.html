@@ -7,6 +7,13 @@
     <title>UmamiDash</title>
   </head>
   <body>
+    <script>
+      (function () {
+        var stored = localStorage.getItem('umamidash-dark-mode')
+        var dark = stored !== null ? stored === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (dark) document.documentElement.classList.add('dark')
+      })()
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

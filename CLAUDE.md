@@ -43,13 +43,21 @@ In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.confi
 
 - `src/main.ts` - Router setup; single route `/realtime` (root redirects to it)
 - `src/composables/useRealtimeStream.ts` - EventSource composable; parses SSE data into reactive Maps keyed by website ID
+- `src/composables/useTheme.ts` - Unified dark mode + theme color composable; applies CSS custom properties as inline styles on `documentElement`, persists to localStorage (`umamidash-dark-mode`, `umamidash-theme`)
+- `src/lib/themes.ts` - Theme definitions array; 4 base gray themes (Neutral, Zinc, Slate, Stone) override all CSS vars, 7 accent themes (Red, Rose, Orange, Green, Blue, Violet, Yellow) override primary/chart/sidebar-primary vars only
 - `src/components/ActiveVisitorCard.vue` - Per-website card with visitor count, countries, URLs, sparkline
 - `src/components/SparklineBackground.vue` - SVG bar chart rendered as card background with hover tooltips
+- `src/components/ThemeDropdown.vue` - Header dropdown for selecting theme color
+- `src/components/DarkModeToggle.vue` - Header button toggling light/dark mode
 - `src/types/index.ts` - Shared TypeScript interfaces (Website, DashboardConfig, RealtimeData, etc.)
 
 ### UI
 
 Uses **shadcn-vue** (new-york style, neutral base color) with Tailwind CSS v4 and `lucide-vue-next` icons. Components live in `src/components/ui/` and are added via the shadcn-vue CLI. The `@` alias maps to `src/`.
+
+### Theming
+
+Theme switching works by setting CSS custom properties as inline styles on `<html>`, which override the `:root` / `.dark` defaults in `index.css`. When the "Neutral" theme is selected, all inline overrides are cleared and the stylesheet defaults take effect. A blocking `<script>` in `index.html` reads the dark mode preference from localStorage before paint to prevent FOUC.
 
 ## Deployment
 

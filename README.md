@@ -20,6 +20,8 @@ Each card displays:
 - 24-hour sparkline bar chart background showing hourly session history with hover tooltips
 - Link to the Umami realtime view (bottom-right)
 
+The header includes a theme color picker (11 color themes sourced from shadcn/ui) and a dark mode toggle. Both persist to localStorage.
+
 ## Prerequisites
 
 - Node.js 20+

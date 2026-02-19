@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar'
 import AppSidebar from '@/components/AppSidebar.vue'
+import ThemeDropdown from '@/components/ThemeDropdown.vue'
+import DarkModeToggle from '@/components/DarkModeToggle.vue'
 </script>
 
 <template>
@@ -10,6 +12,10 @@ import AppSidebar from '@/components/AppSidebar.vue'
       <header class="flex h-12 items-center gap-2 border-b px-4">
         <SidebarTrigger />
         <h1 class="text-sm font-semibold">UmamiDash</h1>
+        <div class="ml-auto flex items-center gap-1">
+          <ThemeDropdown />
+          <DarkModeToggle />
+        </div>
       </header>
       <main class="flex min-h-0 flex-1 flex-col p-4">
         <RouterView />

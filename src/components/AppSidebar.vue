@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { Activity, Sun, Moon } from 'lucide-vue-next'
+import { Activity } from 'lucide-vue-next'
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -12,10 +11,6 @@ import {
   SidebarMenuItem,
   SidebarHeader,
 } from '@/components/ui/sidebar'
-import { Button } from '@/components/ui/button'
-import { useDarkMode } from '@/composables/useDarkMode'
-
-const { isDark, toggle } = useDarkMode()
 </script>
 
 <template>
@@ -40,12 +35,5 @@ const { isDark, toggle } = useDarkMode()
         </SidebarGroupContent>
       </SidebarGroup>
     </SidebarContent>
-    <SidebarFooter class="p-4">
-      <Button variant="ghost" size="icon" @click="toggle">
-        <Sun v-if="isDark" class="size-4" />
-        <Moon v-else class="size-4" />
-        <span class="sr-only">Toggle dark mode</span>
-      </Button>
-    </SidebarFooter>
   </Sidebar>
 </template>

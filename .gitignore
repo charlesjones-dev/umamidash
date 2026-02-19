@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+*.pem
+*.key
+*.crt
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.swp
+*.swo
+.claude/settings.local.json

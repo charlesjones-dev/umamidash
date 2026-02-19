@@ -1,0 +1,91 @@
+# UmamiDash
+
+Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances. Built with Vue 3, shadcn-vue, and Express.
+
+## How It Works
+
+UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website.
+
+```
+Browser  ←—SSE—→  Express (:3000)  —polls→  Umami API
+```
+
+## Prerequisites
+
+- Node.js 20+
+- pnpm
+- [Doppler CLI](https://docs.doppler.com/docs/install-cli) (or use a local `.env` file)
+- Self-hosted Umami instance (v2) - [deploy one on Railway](https://railway.com/deploy/umami-analytics)
+
+## Quick Start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Option A: Configure Doppler
+pnpm setup:doppler
+
+# Option B: Use a local .env file
+cp .env.example .env
+# Edit .env with your Umami credentials
+
+# Start development (Express + Vite)
+pnpm dev
+```
+
+Open `http://localhost:5173` in your browser.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `UMAMI_API_ENDPOINT` | Umami instance URL | required |
+| `UMAMI_USERNAME` | Umami login username | required |
+| `UMAMI_PASSWORD` | Umami login password | required |
+| `UMAMI_WEBSITES` | JSON array: `[{"id":"uuid","name":"Display Name"}]` | required |
+| `GRID_COLUMNS` | Grid columns on Realtime page | `3` |
+| `GRID_ROWS` | Grid rows on Realtime page | `2` |
+| `POLL_INTERVAL_MS` | Umami poll interval (ms) | `5000` |
+| `PORT` | Server port | `3000` |
+
+Get your website IDs from Umami dashboard: Settings, then Websites.
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `pnpm dev` | Start Express + Vite dev servers |
+| `pnpm dev:server` | Start Express only |
+| `pnpm dev:client` | Start Vite only |
+| `pnpm build` | Build Vue SPA for production |
+| `pnpm start` | Start production server |
+| `pnpm setup:doppler` | Configure Doppler service token |
+
+## Deployment
+
+### Railway
+
+1. Connect your repo to Railway
+2. Add Doppler integration or set environment variables directly
+3. Railway auto-detects `railway.toml` for build/deploy config
+
+Set `NODE_ENV=production` so the Express server serves the built SPA.
+
+Access control is intended to be handled externally (e.g., Cloudflare Zero Trust). There is no built-in authentication.
+
+## Adding UI Components
+
+This project uses [shadcn-vue](https://www.shadcn-vue.com). To add components:
+
+```bash
+pnpm dlx shadcn-vue@latest add <component-name>
+```
+
+## Contributing
+
+Contributions are welcome. Please open an issue to discuss changes before submitting a PR.
+
+## License
+
+[MIT](LICENSE)

@@ -238,7 +238,7 @@ async function fetchPageviewSeries(websiteId) {
     const parts = fmt.formatToParts(t)
     const g = (type) => parts.find((p) => p.type === type).value
     const key = `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:00:00`
-    series.push({ x: key, y: sparse.get(key) ?? 0 })
+    series.push({ x: t.toISOString(), y: sparse.get(key) ?? 0 })
   }
   return series
 }

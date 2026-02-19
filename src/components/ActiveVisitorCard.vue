@@ -42,7 +42,16 @@ function fullUrl(path: string): string | undefined {
     <SparklineBackground :data="series" />
 
     <!-- Top-left: website name -->
-    <span class="absolute top-4 left-6 text-lg font-medium text-muted-foreground">
+    <a
+      v-if="websiteDomain"
+      :href="`https://${websiteDomain}`"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="absolute top-4 left-6 text-lg font-medium text-muted-foreground hover:text-foreground hover:underline transition-colors"
+    >
+      {{ websiteName }}
+    </a>
+    <span v-else class="absolute top-4 left-6 text-lg font-medium text-muted-foreground">
       {{ websiteName }}
     </span>
 

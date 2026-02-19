@@ -55,7 +55,7 @@ const tooltip = computed(() => {
 })
 
 function formatTime(x: string): string {
-  const d = new Date(x.replace(' ', 'T'))
+  const d = new Date(x)
   return d.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -115,10 +115,17 @@ function formatTime(x: string): string {
       {{ tooltip.label }} <span class="text-muted-foreground/60 mx-0.5">&middot;</span> <span class="font-semibold tabular-nums">{{ tooltip.count }}</span>
     </div>
 
-    <!-- Peak count hint -->
+    <!-- Peak count hints -->
     <span
       v-if="maxValue > 0"
       class="absolute left-1.5 text-[10px] tabular-nums font-medium text-muted-foreground/50 leading-none"
+      :style="{ bottom: `${MAX_HEIGHT + 1}%` }"
+    >
+      {{ maxValue }}
+    </span>
+    <span
+      v-if="maxValue > 0"
+      class="absolute right-1.5 text-[10px] tabular-nums font-medium text-muted-foreground/50 leading-none"
       :style="{ bottom: `${MAX_HEIGHT + 1}%` }"
     >
       {{ maxValue }}

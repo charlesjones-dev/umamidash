@@ -8,7 +8,8 @@ UmamiDash runs a lightweight Express server that authenticates with your Umami i
 
 ```
 Browser  ←—SSE—→  Express (:3000)  —polls→  Umami API
-                                     ├── /api/realtime/:id (active visitors, countries, URLs)
+                                     ├── /api/websites/:id/active (active visitor count, 5-min window)
+                                     ├── /api/realtime/:id (countries, URLs, filtered to 5-min window)
                                      └── /api/websites/:id/pageviews (24h hourly sessions)
 ```
 

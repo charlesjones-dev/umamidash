@@ -65,20 +65,47 @@ async function umamiGet(path) {
   return res.json()
 }
 
+async function fetchActiveVisitors(websiteId) {
+  const data = await umamiGet(`/api/websites/${websiteId}/active`)
+  return data.x ?? 0
+}
+
 async function fetchRealtime(websiteId) {
   const data = await umamiGet(`/api/realtime/${websiteId}`)
-  const visitors = data.totals?.visitors ?? 0
-  const countriesObj = data.countries ?? {}
-  const countries = Object.entries(countriesObj)
-    .map(([country, count]) => ({ country, visitors: count }))
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+
+  // Filter pageviews to last 5 minutes to match the active visitor window
+  const recentPageviews = (data.pageviews ?? []).filter(
+    (pv) => new Date(pv.createdAt) >= fiveMinAgo
+  )
+
+  // Aggregate countries from recent pageviews (unique sessions per country)
+  const countrySessions = {}
+  for (const pv of recentPageviews) {
+    if (pv.country) {
+      if (!countrySessions[pv.country]) countrySessions[pv.country] = new Set()
+      countrySessions[pv.country].add(pv.sessionId ?? pv.id)
+    }
+  }
+  const countries = Object.entries(countrySessions)
+    .map(([country, sessions]) => ({ country, visitors: sessions.size }))
     .sort((a, b) => b.visitors - a.visitors)
     .slice(0, 5)
-  const urlsObj = data.urls ?? {}
-  const urls = Object.entries(urlsObj)
-    .map(([url, count]) => ({ url, visitors: count }))
+
+  // Aggregate URLs from recent pageviews
+  const urlSessions = {}
+  for (const pv of recentPageviews) {
+    if (pv.urlPath) {
+      if (!urlSessions[pv.urlPath]) urlSessions[pv.urlPath] = new Set()
+      urlSessions[pv.urlPath].add(pv.sessionId ?? pv.id)
+    }
+  }
+  const urls = Object.entries(urlSessions)
+    .map(([url, sessions]) => ({ url, visitors: sessions.size }))
     .sort((a, b) => b.visitors - a.visitors)
     .slice(0, 5)
-  return { visitors, countries, urls }
+
+  return { countries, urls }
 }
 
 async function fetchPageviewSeries(websiteId) {
@@ -135,7 +162,8 @@ function startPolling() {
     try {
       const results = await Promise.all(
         UMAMI_WEBSITES.map(async (site) => {
-          const [{ visitors, countries, urls }, series] = await Promise.all([
+          const [visitors, { countries, urls }, series] = await Promise.all([
+            fetchActiveVisitors(site.id),
             fetchRealtime(site.id),
             fetchPageviewSeries(site.id),
           ])

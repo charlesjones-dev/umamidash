@@ -2,6 +2,30 @@
 
 Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances. Built with Vue 3, shadcn-vue, and Express.
 
+## Preview
+
+```
+┌─────────────────────────────────┐  ┌─────────────────────────────────┐
+│ blog.example.com     US 5  UK 2 │  │ shop.example.com        DE 3   │
+│  12                          12 │  │  8                           8  │
+│                                 │  │                                 │
+│              24                 │  │               7                 │
+│         active visitors         │  │          active visitors        │
+│                                 │  │                                 │
+│  3 /how-to-deploy    ▁▂▅▇▃▂▁▄  │  │  2 /products       ▁▁▃▅▇▅▃▂▁  │
+│  2 /getting-started  -24h    ⇗  │  │  1 /checkout       -24h     ⇗  │
+├─────────────────────────────────┤  ├─────────────────────────────────┤
+│ docs.example.com         CA 1   │  │ app.example.com    JP 4  BR 2  │
+│  4                           4  │  │  16                         16  │
+│                                 │  │                                 │
+│               3                 │  │              12                 │
+│          active visitors        │  │         active visitors         │
+│                                 │  │                                 │
+│  1 /api-reference    ▁▁▂▃▂▁▁▁  │  │  3 /dashboard      ▂▃▅▇▆▅▃▂▁  │
+│  1 /quickstart       -24h    ⇗  │  │  2 /settings       -24h     ⇗  │
+└─────────────────────────────────┘  └─────────────────────────────────┘
+```
+
 ## How It Works
 
 UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts and pageview history, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website with 24-hour sparkline bar charts. Click on the countries list to open an interactive world map showing geocoded session pins.

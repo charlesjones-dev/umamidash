@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import type { DashboardConfig } from '@/types'
 import { useRealtimeStream } from '@/composables/useRealtimeStream'
 import ActiveVisitorCard from '@/components/ActiveVisitorCard.vue'
 
 const config = ref<DashboardConfig | null>(null)
 const error = ref<string | null>(null)
-const { visitors, connected } = useRealtimeStream()
+const { visitors, countries, urls, series, connected } = useRealtimeStream()
+
+const lastCardSpan = computed(() => {
+  if (!config.value) return 1
+  const { columns, websites } = config.value
+  if (columns < 2 || columns % 2 !== 0) return 1
+  const remainder = websites.length % columns
+  return remainder === 0 ? 1 : columns - remainder + 1
+})
 
 onMounted(async () => {
   try {
@@ -25,15 +33,25 @@ onMounted(async () => {
   <template v-else>
     <div v-if="!connected" class="mb-4 text-sm text-muted-foreground">Reconnecting...</div>
     <div
-      class="grid gap-4"
-      :style="{ gridTemplateColumns: `repeat(${config.columns}, minmax(0, 1fr))` }"
+      class="grid min-h-0 flex-1 gap-4"
+      :style="{
+        gridTemplateColumns: `repeat(${config.columns}, minmax(0, 1fr))`,
+        gridAutoRows: 'minmax(0, 1fr)',
+      }"
     >
       <ActiveVisitorCard
-        v-for="site in config.websites"
+        v-for="(site, index) in config.websites"
         :key="site.id"
         :website-name="site.name"
+        :website-domain="site.domain"
         :visitors="visitors.get(site.id) ?? null"
+        :countries="countries.get(site.id) ?? []"
+        :urls="urls.get(site.id) ?? []"
+        :series="series.get(site.id) ?? []"
         :realtime-url="`${config.umamiUrl}/websites/${site.id}/realtime`"
+        :style="index === config.websites.length - 1 && lastCardSpan > 1
+          ? { gridColumn: `span ${lastCardSpan}` }
+          : undefined"
       />
     </div>
   </template>

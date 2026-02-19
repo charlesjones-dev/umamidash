@@ -4,11 +4,20 @@ Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances
 
 ## How It Works
 
-UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website.
+UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts and pageview history, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website with 24-hour sparkline bar charts.
 
 ```
 Browser  ←—SSE—→  Express (:3000)  —polls→  Umami API
+                                     ├── /api/realtime/:id (active visitors, countries, URLs)
+                                     └── /api/websites/:id/pageviews (24h hourly sessions)
 ```
+
+Each card displays:
+- Live active visitor count (center)
+- Top 5 countries with visitor counts (top-right)
+- Top 5 active URLs (bottom-left)
+- 24-hour sparkline bar chart background showing hourly session history with hover tooltips
+- Link to the Umami realtime view (bottom-right)
 
 ## Prerequisites
 

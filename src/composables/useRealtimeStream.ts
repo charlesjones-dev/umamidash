@@ -1,8 +1,11 @@
 import { ref, onUnmounted } from 'vue'
-import type { RealtimeData } from '@/types'
+import type { RealtimeData, CountryData, UrlData, SeriesPoint } from '@/types'
 
 export function useRealtimeStream() {
   const visitors = ref(new Map<string, number>())
+  const countries = ref(new Map<string, CountryData[]>())
+  const urls = ref(new Map<string, UrlData[]>())
+  const series = ref(new Map<string, SeriesPoint[]>())
   const connected = ref(false)
   let eventSource: EventSource | null = null
 
@@ -15,16 +18,24 @@ export function useRealtimeStream() {
 
     eventSource.onmessage = (event) => {
       const data: RealtimeData[] = JSON.parse(event.data)
-      const updated = new Map(visitors.value)
+      const updatedVisitors = new Map(visitors.value)
+      const updatedCountries = new Map(countries.value)
+      const updatedUrls = new Map(urls.value)
+      const updatedSeries = new Map(series.value)
       for (const item of data) {
-        updated.set(item.websiteId, item.visitors)
+        updatedVisitors.set(item.websiteId, item.visitors)
+        updatedCountries.set(item.websiteId, item.countries ?? [])
+        updatedUrls.set(item.websiteId, item.urls ?? [])
+        updatedSeries.set(item.websiteId, item.series ?? [])
       }
-      visitors.value = updated
+      visitors.value = updatedVisitors
+      countries.value = updatedCountries
+      urls.value = updatedUrls
+      series.value = updatedSeries
     }
 
     eventSource.onerror = () => {
       connected.value = false
-      // EventSource auto-reconnects on transient failures
     }
   }
 
@@ -35,5 +46,5 @@ export function useRealtimeStream() {
     eventSource = null
   })
 
-  return { visitors, connected }
+  return { visitors, countries, urls, series, connected }
 }

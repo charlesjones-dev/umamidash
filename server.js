@@ -48,14 +48,14 @@ async function ensureToken() {
   }
 }
 
-async function fetchActiveVisitors(websiteId) {
+async function umamiGet(path) {
   await ensureToken()
-  const res = await fetch(`${UMAMI_API_ENDPOINT}/api/websites/${websiteId}/active`, {
+  const res = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
     headers: { Authorization: `Bearer ${umamiToken}` },
   })
   if (res.status === 401) {
     await login()
-    const retry = await fetch(`${UMAMI_API_ENDPOINT}/api/websites/${websiteId}/active`, {
+    const retry = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
       headers: { Authorization: `Bearer ${umamiToken}` },
     })
     if (!retry.ok) throw new Error(`Umami fetch failed: ${retry.status}`)
@@ -63,6 +63,56 @@ async function fetchActiveVisitors(websiteId) {
   }
   if (!res.ok) throw new Error(`Umami fetch failed: ${res.status}`)
   return res.json()
+}
+
+async function fetchRealtime(websiteId) {
+  const data = await umamiGet(`/api/realtime/${websiteId}`)
+  const visitors = data.totals?.visitors ?? 0
+  const countriesObj = data.countries ?? {}
+  const countries = Object.entries(countriesObj)
+    .map(([country, count]) => ({ country, visitors: count }))
+    .sort((a, b) => b.visitors - a.visitors)
+    .slice(0, 5)
+  const urlsObj = data.urls ?? {}
+  const urls = Object.entries(urlsObj)
+    .map(([url, count]) => ({ url, visitors: count }))
+    .sort((a, b) => b.visitors - a.visitors)
+    .slice(0, 5)
+  return { visitors, countries, urls }
+}
+
+async function fetchPageviewSeries(websiteId) {
+  const now = Date.now()
+  const startAt = now - 24 * 60 * 60 * 1000
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const params = new URLSearchParams({
+    startAt: String(startAt),
+    endAt: String(now),
+    unit: 'hour',
+    timezone: tz,
+  })
+  const data = await umamiGet(`/api/websites/${websiteId}/pageviews?${params}`)
+
+  // API returns local-tz timestamps like "2026-02-18 20:00:00"; backfill full 24h
+  const sparse = new Map()
+  for (const p of data.sessions ?? []) {
+    sparse.set(p.x, p.y)
+  }
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  })
+  const series = []
+  for (let i = 23; i >= 0; i--) {
+    const t = new Date(now - i * 60 * 60 * 1000)
+    const parts = fmt.formatToParts(t)
+    const g = (type) => parts.find((p) => p.type === type).value
+    const key = `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:00:00`
+    series.push({ x: key, y: sparse.get(key) ?? 0 })
+  }
+  return series
 }
 
 // SSE
@@ -77,13 +127,6 @@ function broadcast(data) {
 
 let pollInterval = null
 
-function parseActiveVisitors(data) {
-  if (typeof data === 'number') return data
-  if (Array.isArray(data)) return data[0]?.visitors ?? data[0]?.x ?? 0
-  if (data && typeof data === 'object') return data.visitors ?? data.x ?? 0
-  return 0
-}
-
 function startPolling() {
   if (pollInterval) return
 
@@ -92,8 +135,11 @@ function startPolling() {
     try {
       const results = await Promise.all(
         UMAMI_WEBSITES.map(async (site) => {
-          const data = await fetchActiveVisitors(site.id)
-          return { websiteId: site.id, visitors: parseActiveVisitors(data) }
+          const [{ visitors, countries, urls }, series] = await Promise.all([
+            fetchRealtime(site.id),
+            fetchPageviewSeries(site.id),
+          ])
+          return { websiteId: site.id, visitors, countries, urls, series }
         })
       )
       broadcast(results)

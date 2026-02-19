@@ -1,6 +1,7 @@
 export interface Website {
   id: string
   name: string
+  domain?: string
 }
 
 export interface DashboardConfig {
@@ -11,7 +12,25 @@ export interface DashboardConfig {
   umamiUrl: string
 }
 
+export interface CountryData {
+  country: string
+  visitors: number
+}
+
+export interface UrlData {
+  url: string
+  visitors: number
+}
+
+export interface SeriesPoint {
+  x: string
+  y: number
+}
+
 export interface RealtimeData {
   websiteId: string
   visitors: number
+  countries: CountryData[]
+  urls: UrlData[]
+  series: SeriesPoint[]
 }

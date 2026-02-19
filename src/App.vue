@@ -11,7 +11,7 @@ import AppSidebar from '@/components/AppSidebar.vue'
         <SidebarTrigger />
         <h1 class="text-sm font-semibold">UmamiDash</h1>
       </header>
-      <main class="flex-1 p-4">
+      <main class="flex min-h-0 flex-1 flex-col p-4">
         <RouterView />
       </main>
     </SidebarInset>

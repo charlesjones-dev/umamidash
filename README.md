@@ -4,21 +4,30 @@ Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances
 
 ## How It Works
 
-UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts and pageview history, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website with 24-hour sparkline bar charts.
+UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts and pageview history, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website with 24-hour sparkline bar charts. Click on the countries list to open an interactive world map showing geocoded session pins.
 
 ```
 Browser  ←—SSE—→  Express (:3000)  —polls→  Umami API
                                      ├── /api/websites/:id/active (active visitor count, 5-min window)
                                      ├── /api/realtime/:id (countries, URLs, filtered to 5-min window)
-                                     └── /api/websites/:id/pageviews (24h hourly sessions)
+                                     ├── /api/websites/:id/pageviews (24h hourly sessions)
+                                     └── /api/websites/:id/sessions/geo (on-demand geocoded sessions for map)
 ```
 
 Each card displays:
 - Live active visitor count (center)
-- Top 5 countries with visitor counts (top-right)
+- Top 5 countries with visitor counts (top-right, clickable to open session map)
 - Top 5 active URLs (bottom-left)
 - 24-hour sparkline bar chart background showing hourly session history with hover tooltips
 - Link to the Umami realtime view (bottom-right)
+- Globe icon (top-right, shown when no active visitors) to open the session map with a 30-minute window
+
+**Session Map Modal** — clicking the countries list or globe icon opens a full-screen dialog with a Leaflet world map. Each active session is plotted as a pin geocoded to city level via Nominatim. Features:
+- Time window toggles: 5m, 30m, 6h, 12h, 24h, 7d
+- Auto-zoom to fit all pins at country level
+- Dark/light map tiles (OpenStreetMap / CartoDB dark_all) matching the app theme
+- Themed markers using the active color theme
+- Popups with session details: location, browser/OS, device/screen, language, last active time
 
 The header includes a theme color picker (11 color themes sourced from shadcn/ui) and a dark mode toggle. Both persist to localStorage.
 

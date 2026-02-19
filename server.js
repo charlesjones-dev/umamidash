@@ -30,6 +30,107 @@ let umamiToken = null
 let tokenTimestamp = 0
 const TOKEN_REFRESH_MS = 23 * 60 * 60 * 1000 // 23 hours
 
+// Geocoding cache: "country:region:city" → { lat, lng }
+const geocodeCache = new Map()
+let lastNominatimCall = 0
+
+async function geocodeCity(country, region, city) {
+  const key = `${country}:${region}:${city}`
+  if (geocodeCache.has(key)) return geocodeCache.get(key)
+
+  // Rate limit: 1 request per second (Nominatim policy)
+  const now = Date.now()
+  const wait = Math.max(0, 1000 - (now - lastNominatimCall))
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+  lastNominatimCall = Date.now()
+
+  // Extract state/province from subdivision code (e.g. "US-GA" → "GA")
+  const state = region && region.includes('-') ? region.split('-').slice(1).join('-') : region
+
+  // Build structured queries in order of specificity
+  const queries = [
+    // Most specific: city + state + country
+    city && state && country ? { city, state, country } : null,
+    // City + country only
+    city && country ? { city, country } : null,
+    // Country-level fallback
+    country ? { country } : null,
+  ].filter(Boolean)
+
+  for (const params of queries) {
+    try {
+      const qs = new URLSearchParams({ format: 'json', limit: '1', ...params })
+      const url = `https://nominatim.openstreetmap.org/search?${qs}`
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'UmamiDash/1.0' },
+      })
+      if (!res.ok) continue
+      const results = await res.json()
+      if (results.length > 0) {
+        const coords = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) }
+        geocodeCache.set(key, coords)
+        return coords
+      }
+    } catch {
+      // Try next query
+    }
+  }
+
+  // Fallback: null (skip this session on the map)
+  geocodeCache.set(key, null)
+  return null
+}
+
+async function fetchGeocodedSessions(websiteId, windowMinutes) {
+  const now = Date.now()
+  const startAt = now - windowMinutes * 60 * 1000
+  const params = new URLSearchParams({
+    startAt: String(startAt),
+    endAt: String(now),
+    pageSize: '200',
+  })
+  const data = await umamiGet(`/api/websites/${websiteId}/sessions?${params}`)
+  const sessions = data.data ?? data ?? []
+
+  // Collect unique city keys for batch geocoding
+  const cityKeys = new Map() // "country:region:city" → first occurrence
+  for (const s of sessions) {
+    const key = `${s.country || ''}:${s.subdivision1 || s.region || ''}:${s.city || ''}`
+    if (!cityKeys.has(key)) {
+      cityKeys.set(key, { country: s.country || '', region: s.subdivision1 || s.region || '', city: s.city || '' })
+    }
+  }
+
+  // Geocode sequentially (cache makes repeat calls instant)
+  for (const { country, region, city } of cityKeys.values()) {
+    await geocodeCity(country, region, city)
+  }
+
+  // Build result array
+  const result = []
+  for (const s of sessions) {
+    const key = `${s.country || ''}:${s.subdivision1 || s.region || ''}:${s.city || ''}`
+    const coords = geocodeCache.get(key)
+    if (!coords) continue
+    result.push({
+      id: s.id,
+      country: s.country || '',
+      region: s.subdivision1 || s.region || '',
+      city: s.city || '',
+      lat: coords.lat,
+      lng: coords.lng,
+      browser: s.browser || '',
+      os: s.os || '',
+      device: s.device || '',
+      screen: s.screen || '',
+      language: s.language || '',
+      firstAt: s.firstAt || s.createdAt || '',
+      lastAt: s.lastAt || s.createdAt || '',
+    })
+  }
+  return result
+}
+
 async function login() {
   const res = await fetch(`${UMAMI_API_ENDPOINT}/api/auth/login`, {
     method: 'POST',
@@ -220,6 +321,24 @@ app.get('/api/realtime/stream', (req, res) => {
       pollInterval = null
     }
   })
+})
+
+app.get('/api/websites/:websiteId/sessions/geo', async (req, res) => {
+  const { websiteId } = req.params
+  const validIds = UMAMI_WEBSITES.map((w) => w.id)
+  if (!validIds.includes(websiteId)) {
+    return res.status(404).json({ error: 'Website not found' })
+  }
+  const ALLOWED_WINDOWS = [5, 30, 360, 720, 1440, 10080]
+  const window = parseInt(req.query.window, 10)
+  const windowMinutes = ALLOWED_WINDOWS.includes(window) ? window : 5
+  try {
+    const sessions = await fetchGeocodedSessions(websiteId, windowMinutes)
+    res.json({ websiteId, sessions })
+  } catch (err) {
+    console.error('Geo sessions error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch sessions' })
+  }
 })
 
 // SPA serving in production

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ExternalLink } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { ExternalLink, Globe } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import SparklineBackground from '@/components/SparklineBackground.vue'
+import SessionMapModal from '@/components/SessionMapModal.vue'
 import type { CountryData, UrlData, SeriesPoint } from '@/types'
 
 const props = defineProps<{
+  websiteId: string
   websiteName: string
   websiteDomain?: string
   visitors: number | null
@@ -14,6 +17,14 @@ const props = defineProps<{
   series: SeriesPoint[]
   realtimeUrl: string
 }>()
+
+const mapModalOpen = ref(false)
+const mapInitialWindow = ref(5)
+
+function openMap(defaultWindow: number) {
+  mapInitialWindow.value = defaultWindow
+  mapModalOpen.value = true
+}
 
 function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max) + '...' : str
@@ -35,12 +46,28 @@ function fullUrl(path: string): string | undefined {
       {{ websiteName }}
     </span>
 
-    <!-- Top-right: countries -->
-    <ul v-if="countries.length" class="absolute top-4 right-6 text-xs text-muted-foreground space-y-0.5 text-right">
-      <li v-for="c in countries" :key="c.country" class="tabular-nums">
-        {{ c.country }} <span class="font-medium text-foreground">{{ c.visitors }}</span>
-      </li>
-    </ul>
+    <!-- Top-right: countries (clickable to open map) or map icon when empty -->
+    <button
+      v-if="countries.length"
+      class="absolute top-4 right-6 cursor-pointer text-right transition-opacity hover:opacity-70"
+      @click="openMap(5)"
+    >
+      <ul class="text-xs text-muted-foreground space-y-0.5">
+        <li v-for="c in countries" :key="c.country" class="tabular-nums">
+          {{ c.country }} <span class="font-medium text-foreground">{{ c.visitors }}</span>
+        </li>
+      </ul>
+    </button>
+    <Button
+      v-else
+      variant="ghost"
+      size="icon"
+      class="absolute top-2 right-2 size-7 text-muted-foreground"
+      @click="openMap(30)"
+    >
+      <Globe class="size-3.5" />
+      <span class="sr-only">Open session map</span>
+    </Button>
 
     <!-- Center: visitor count -->
     <div class="text-center">
@@ -79,5 +106,11 @@ function fullUrl(path: string): string | undefined {
       <ExternalLink class="size-3.5" />
       <span class="sr-only">Open in Umami</span>
     </Button>
+    <SessionMapModal
+      v-model:open="mapModalOpen"
+      :website-id="websiteId"
+      :website-name="websiteName"
+      :initial-window="mapInitialWindow"
+    />
   </Card>
 </template>

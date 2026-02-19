@@ -42,6 +42,7 @@ onMounted(async () => {
       <ActiveVisitorCard
         v-for="(site, index) in config.websites"
         :key="site.id"
+        :website-id="site.id"
         :website-name="site.name"
         :website-domain="site.domain"
         :visitors="visitors.get(site.id) ?? null"

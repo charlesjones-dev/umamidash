@@ -34,3 +34,19 @@ export interface RealtimeData {
   urls: UrlData[]
   series: SeriesPoint[]
 }
+
+export interface GeocodedSession {
+  id: string
+  country: string
+  region: string
+  city: string
+  lat: number
+  lng: number
+  browser: string
+  os: string
+  device: string
+  screen: string
+  language: string
+  firstAt: string
+  lastAt: string
+}

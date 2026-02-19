@@ -67,15 +67,15 @@ async function umamiGet(path) {
 
 async function fetchActiveVisitors(websiteId) {
   const data = await umamiGet(`/api/websites/${websiteId}/active`)
-  return data.x ?? 0
+  return data.visitors ?? 0
 }
 
 async function fetchRealtime(websiteId) {
   const data = await umamiGet(`/api/realtime/${websiteId}`)
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
 
-  // Filter pageviews to last 5 minutes to match the active visitor window
-  const recentPageviews = (data.pageviews ?? []).filter(
+  // Filter events to last 5 minutes to match the active visitor window
+  const recentPageviews = (data.events ?? []).filter(
     (pv) => new Date(pv.createdAt) >= fiveMinAgo
   )
 

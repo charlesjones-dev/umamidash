@@ -53,7 +53,7 @@ Each card displays:
 - Themed markers using the active color theme
 - Popups with session details: location, browser/OS, device/screen, language, last active time
 
-The header includes a theme color picker (11 color themes sourced from shadcn/ui) and a dark mode toggle. Both persist to localStorage.
+The header includes a connection status dot (green = connected, yellow = reconnecting, red = disconnected), a theme color picker (11 color themes sourced from shadcn/ui), and a dark mode toggle. Both theme and dark mode persist to localStorage.
 
 ## Prerequisites
 

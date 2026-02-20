@@ -1,19 +1,21 @@
 import { ref, onUnmounted } from 'vue'
 import type { RealtimeData, CountryData, UrlData, SeriesPoint } from '@/types'
 
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
+export const connectionStatus = ref<ConnectionStatus>('reconnecting')
+
 export function useRealtimeStream() {
   const visitors = ref(new Map<string, number>())
   const countries = ref(new Map<string, CountryData[]>())
   const urls = ref(new Map<string, UrlData[]>())
   const series = ref(new Map<string, SeriesPoint[]>())
-  const connected = ref(false)
   let eventSource: EventSource | null = null
 
   function connect() {
     eventSource = new EventSource('/api/realtime/stream')
 
     eventSource.onopen = () => {
-      connected.value = true
+      connectionStatus.value = 'connected'
     }
 
     eventSource.onmessage = (event) => {
@@ -35,7 +37,11 @@ export function useRealtimeStream() {
     }
 
     eventSource.onerror = () => {
-      connected.value = false
+      if (eventSource?.readyState === EventSource.CLOSED) {
+        connectionStatus.value = 'disconnected'
+      } else {
+        connectionStatus.value = 'reconnecting'
+      }
     }
   }
 
@@ -46,5 +52,5 @@ export function useRealtimeStream() {
     eventSource = null
   })
 
-  return { visitors, countries, urls, series, connected }
+  return { visitors, countries, urls, series }
 }

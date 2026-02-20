@@ -47,11 +47,11 @@ function fullUrl(path: string): string | undefined {
       :href="`https://${websiteDomain}`"
       target="_blank"
       rel="noopener noreferrer"
-      class="absolute top-4 left-6 text-lg font-medium text-muted-foreground hover:text-foreground hover:underline transition-colors"
+      class="absolute top-4 left-6 text-[0.5625rem] sm:text-lg font-medium text-muted-foreground hover:text-foreground hover:underline transition-colors"
     >
       {{ websiteName }}
     </a>
-    <span v-else class="absolute top-4 left-6 text-lg font-medium text-muted-foreground">
+    <span v-else class="absolute top-4 left-6 text-[0.5625rem] sm:text-lg font-medium text-muted-foreground">
       {{ websiteName }}
     </span>
 
@@ -80,15 +80,15 @@ function fullUrl(path: string): string | undefined {
 
     <!-- Center: visitor count -->
     <div class="text-center">
-      <div class="text-7xl font-bold tabular-nums">
+      <div class="text-5xl sm:text-7xl font-bold tabular-nums">
         {{ visitors === null ? '...' : visitors }}
       </div>
       <p class="text-sm text-muted-foreground mt-1">active visitors</p>
     </div>
 
     <!-- Bottom-left: URLs -->
-    <ul v-if="urls.length" class="absolute bottom-4 left-6 text-xs text-muted-foreground space-y-0.5">
-      <li v-for="u in urls" :key="u.url" class="tabular-nums">
+    <ul v-if="urls.length" class="absolute bottom-4 left-6 text-xs text-muted-foreground space-y-0.5 max-w-[25%] overflow-hidden sm:max-w-none">
+      <li v-for="(u, i) in urls" :key="u.url" class="tabular-nums" :class="{ 'hidden sm:list-item': i >= 2 }">
         <span class="font-medium text-foreground">{{ u.visitors }}</span>{{ ' '
         }}<a
           v-if="fullUrl(u.url)"

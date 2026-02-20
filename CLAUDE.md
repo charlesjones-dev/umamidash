@@ -42,11 +42,11 @@ In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.confi
 
 ### Client Structure
 
-- `src/main.ts` - Router setup; single route `/realtime` (root redirects to it)
-- `src/composables/useRealtimeStream.ts` - EventSource composable; parses SSE data into reactive Maps keyed by website ID
+- `src/main.ts` - App bootstrap; mounts Vue app directly (no router)
+- `src/composables/useRealtimeStream.ts` - EventSource composable; parses SSE data into reactive Maps keyed by website ID. Exports a module-level `connectionStatus` ref (`'connected' | 'reconnecting' | 'disconnected'`) used by the header status dot
 - `src/composables/useTheme.ts` - Unified dark mode + theme color composable; applies CSS custom properties as inline styles on `documentElement`, persists to localStorage (`umamidash-dark-mode`, `umamidash-theme`)
 - `src/lib/themes.ts` - Theme definitions array; 4 base gray themes (Neutral, Zinc, Slate, Stone) override all CSS vars, 7 accent themes (Red, Rose, Orange, Green, Blue, Violet, Yellow) override primary/chart/sidebar-primary vars only
-- `src/components/ActiveVisitorCard.vue` - Per-website card with visitor count, countries, URLs, sparkline. Countries list is clickable (opens session map modal at 5-min window); when no visitors, a globe icon opens it at 30-min window.
+- `src/components/ActiveVisitorCard.vue` - Per-website card with visitor count, countries, URLs, sparkline. Countries list is clickable (opens session map modal at 5-min window); when no visitors, a globe icon opens it at 30-min window. Mobile-responsive: smaller title/count, URL list limited to top 2 with max-width constraint.
 - `src/components/SessionMapModal.vue` - Full-screen dialog with Leaflet map showing geocoded session pins. Time window toggles (5m, 30m, 6h, 12h, 24h, 7d). Dark/light tile switching (OpenStreetMap / CartoDB dark_all). Themed circle markers using `--primary` CSS var. Auto-zoom `fitBounds` with `maxZoom: 5` (country level). Popup shows location, browser/OS, device/screen, language, last active time.
 - `src/components/SparklineBackground.vue` - SVG bar chart rendered as card background with hover tooltips
 - `src/components/ThemeDropdown.vue` - Header dropdown for selecting theme color

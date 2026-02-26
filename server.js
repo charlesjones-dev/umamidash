@@ -343,7 +343,15 @@ app.get('/api/websites/:websiteId/sessions/geo', async (req, res) => {
 
 // SPA serving in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(resolve(__dirname, 'dist')))
+  app.use(
+    express.static(resolve(__dirname, 'dist'), {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('.webmanifest')) {
+          res.setHeader('Content-Type', 'application/manifest+json')
+        }
+      },
+    })
+  )
   app.get('*', (_req, res) => {
     res.sendFile(resolve(__dirname, 'dist', 'index.html'))
   })

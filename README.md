@@ -135,3 +135,7 @@ Contributions are welcome. Please open an issue to discuss changes before submit
 ## License
 
 [MIT](LICENSE)
+
+## Disclaimer
+
+This is an unofficial, community-built project and is not affiliated with, endorsed by, or associated with Umami Software, Inc. "Umami" is a trademark of Umami Software, Inc. This project interacts with the Umami API but does not include any Umami source code.

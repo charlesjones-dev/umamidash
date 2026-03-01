@@ -85,7 +85,8 @@ Open `http://localhost:5173` in your browser.
 
 | Variable | Description | Default |
 |---|---|---|
-| `UMAMI_API_ENDPOINT` | Umami instance URL | required |
+| `UMAMI_API_ENDPOINT` | Umami API URL for server-side polling | required |
+| `UMAMI_PUBLIC_URL` | Public-facing Umami URL for browser links | defaults to `UMAMI_API_ENDPOINT` |
 | `UMAMI_USERNAME` | Umami login username | required |
 | `UMAMI_PASSWORD` | Umami login password | required |
 | `UMAMI_WEBSITES` | JSON array: `[{"id":"uuid","name":"Display Name"}]` | required |

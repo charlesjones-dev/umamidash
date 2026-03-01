@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
 const UMAMI_API_ENDPOINT = process.env.UMAMI_API_ENDPOINT
+const UMAMI_PUBLIC_URL = process.env.UMAMI_PUBLIC_URL || UMAMI_API_ENDPOINT
 const UMAMI_USERNAME = process.env.UMAMI_USERNAME
 const UMAMI_PASSWORD = process.env.UMAMI_PASSWORD
 const GRID_COLUMNS = parseInt(process.env.GRID_COLUMNS || '3', 10)
@@ -299,7 +300,7 @@ app.get('/api/config', (_req, res) => {
     columns: GRID_COLUMNS,
     rows: GRID_ROWS,
     pollInterval: POLL_INTERVAL_MS,
-    umamiUrl: UMAMI_API_ENDPOINT,
+    umamiUrl: UMAMI_PUBLIC_URL,
   })
 })
 

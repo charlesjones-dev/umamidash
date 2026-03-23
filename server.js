@@ -28,7 +28,9 @@ if (!UMAMI_API_ENDPOINT || !UMAMI_USERNAME || !UMAMI_PASSWORD) {
   process.exit(1)
 }
 
-app.use(compression())
+app.use(compression({
+  filter: (req) => req.path !== '/api/realtime/stream',
+}))
 
 let umamiToken = null
 let tokenTimestamp = 0
@@ -153,21 +155,29 @@ async function ensureToken() {
   }
 }
 
-async function umamiGet(path) {
+async function umamiGet(path, retries = 3) {
   await ensureToken()
-  const res = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
-    headers: { Authorization: `Bearer ${umamiToken}` },
-  })
-  if (res.status === 401) {
-    await login()
-    const retry = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
       headers: { Authorization: `Bearer ${umamiToken}` },
     })
-    if (!retry.ok) throw new Error(`Umami fetch failed: ${retry.status}`)
-    return retry.json()
+    if (res.status === 401) {
+      await login()
+      continue
+    }
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('retry-after'), 10)
+      const delay = (retryAfter && retryAfter > 0 ? retryAfter : Math.pow(2, attempt)) * 1000
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delay))
+        continue
+      }
+      throw new Error(`Umami rate limited: ${path}`)
+    }
+    if (!res.ok) throw new Error(`Umami fetch failed: ${res.status}`)
+    return res.json()
   }
-  if (!res.ok) throw new Error(`Umami fetch failed: ${res.status}`)
-  return res.json()
+  throw new Error(`Umami fetch failed after ${retries} retries: ${path}`)
 }
 
 async function fetchActiveVisitors(websiteId) {
@@ -270,12 +280,10 @@ let seriesPollInterval = null
 
 async function pollSeries() {
   try {
-    await Promise.all(
-      UMAMI_WEBSITES.map(async (site) => {
-        const series = await fetchPageviewSeries(site.id)
-        seriesCache.set(site.id, series)
-      })
-    )
+    for (const site of UMAMI_WEBSITES) {
+      const series = await fetchPageviewSeries(site.id)
+      seriesCache.set(site.id, series)
+    }
   } catch (err) {
     console.error('Series poll error:', err.message)
   }
@@ -287,33 +295,32 @@ function startPolling() {
   async function poll() {
     if (clients.size === 0) return
     try {
-      const results = await Promise.all(
-        UMAMI_WEBSITES.map(async (site) => {
-          const [visitors, { countries, urls }] = await Promise.all([
-            fetchActiveVisitors(site.id),
-            fetchRealtime(site.id),
-          ])
-          return {
-            websiteId: site.id,
-            visitors,
-            countries,
-            urls,
-            series: seriesCache.get(site.id) ?? [],
-          }
+      const results = []
+      for (const site of UMAMI_WEBSITES) {
+        const [visitors, { countries, urls }] = await Promise.all([
+          fetchActiveVisitors(site.id),
+          fetchRealtime(site.id),
+        ])
+        results.push({
+          websiteId: site.id,
+          visitors,
+          countries,
+          urls,
+          series: seriesCache.get(site.id) ?? [],
         })
-      )
+      }
       broadcast(results)
     } catch (err) {
       console.error('Poll error:', err.message)
     }
   }
 
-  // Initial series fetch, then start the main poll loop
-  pollSeries().then(() => {
-    poll()
-    pollInterval = setInterval(poll, POLL_INTERVAL_MS)
-  })
+  // Kick off series fetch in background (main poll uses cache, defaults to [])
+  pollSeries()
   seriesPollInterval = setInterval(pollSeries, SERIES_POLL_INTERVAL_MS)
+
+  poll()
+  pollInterval = setInterval(poll, POLL_INTERVAL_MS)
 }
 
 // Heartbeat every 30s

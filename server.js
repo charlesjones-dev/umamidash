@@ -264,11 +264,13 @@ const seriesCache = new Map() // websiteId → series array
 // SSE
 const clients = new Set()
 
+let lastBroadcastData = null
 let lastBroadcastPayload = ''
 
 function broadcast(data) {
   const payload = `data: ${JSON.stringify(data)}\n\n`
   if (payload === lastBroadcastPayload) return
+  lastBroadcastData = data
   lastBroadcastPayload = payload
   for (const res of clients) {
     res.write(payload)
@@ -280,10 +282,12 @@ let seriesPollInterval = null
 
 async function pollSeries() {
   try {
-    for (const site of UMAMI_WEBSITES) {
-      const series = await fetchPageviewSeries(site.id)
-      seriesCache.set(site.id, series)
-    }
+    await Promise.all(
+      UMAMI_WEBSITES.map(async (site) => {
+        const series = await fetchPageviewSeries(site.id)
+        seriesCache.set(site.id, series)
+      })
+    )
   } catch (err) {
     console.error('Series poll error:', err.message)
   }
@@ -295,31 +299,49 @@ function startPolling() {
   async function poll() {
     if (clients.size === 0) return
     try {
-      const results = []
-      for (const site of UMAMI_WEBSITES) {
-        const [visitors, { countries, urls }] = await Promise.all([
-          fetchActiveVisitors(site.id),
-          fetchRealtime(site.id),
-        ])
-        results.push({
-          websiteId: site.id,
-          visitors,
-          countries,
-          urls,
-          series: seriesCache.get(site.id) ?? [],
+      const results = await Promise.all(
+        UMAMI_WEBSITES.map(async (site) => {
+          const [visitors, { countries, urls }] = await Promise.all([
+            fetchActiveVisitors(site.id),
+            fetchRealtime(site.id),
+          ])
+          return {
+            websiteId: site.id,
+            visitors,
+            countries,
+            urls,
+            series: seriesCache.get(site.id) ?? [],
+          }
         })
-      }
+      )
       broadcast(results)
     } catch (err) {
       console.error('Poll error:', err.message)
     }
   }
 
-  // Kick off series fetch in background (main poll uses cache, defaults to [])
-  pollSeries()
-  seriesPollInterval = setInterval(pollSeries, SERIES_POLL_INTERVAL_MS)
+  // First poll fetches series inline; subsequent series updates every 5 minutes
+  async function initialPoll() {
+    try {
+      const results = await Promise.all(
+        UMAMI_WEBSITES.map(async (site) => {
+          const [visitors, { countries, urls }, series] = await Promise.all([
+            fetchActiveVisitors(site.id),
+            fetchRealtime(site.id),
+            fetchPageviewSeries(site.id),
+          ])
+          seriesCache.set(site.id, series)
+          return { websiteId: site.id, visitors, countries, urls, series }
+        })
+      )
+      broadcast(results)
+    } catch (err) {
+      console.error('Initial poll error:', err.message)
+    }
+  }
 
-  poll()
+  initialPoll()
+  seriesPollInterval = setInterval(pollSeries, SERIES_POLL_INTERVAL_MS)
   pollInterval = setInterval(poll, POLL_INTERVAL_MS)
 }
 
@@ -352,6 +374,11 @@ app.get('/api/realtime/stream', (req, res) => {
     Connection: 'keep-alive',
   })
   res.write('\n')
+
+  // Send last known data immediately so refreshing clients don't wait for next poll
+  if (lastBroadcastPayload) {
+    res.write(lastBroadcastPayload)
+  }
 
   clients.add(res)
   startPolling()

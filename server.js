@@ -1,4 +1,5 @@
 import express from 'express'
+import compression from 'compression'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -26,6 +27,8 @@ if (!UMAMI_API_ENDPOINT || !UMAMI_USERNAME || !UMAMI_PASSWORD) {
   console.error('Missing required environment variables: UMAMI_API_ENDPOINT, UMAMI_USERNAME, UMAMI_PASSWORD')
   process.exit(1)
 }
+
+app.use(compression())
 
 let umamiToken = null
 let tokenTimestamp = 0
@@ -244,17 +247,39 @@ async function fetchPageviewSeries(websiteId) {
   return series
 }
 
+// Cached series data (updated every 5 minutes, not every poll)
+const SERIES_POLL_INTERVAL_MS = 5 * 60 * 1000
+const seriesCache = new Map() // websiteId → series array
+
 // SSE
 const clients = new Set()
 
+let lastBroadcastPayload = ''
+
 function broadcast(data) {
   const payload = `data: ${JSON.stringify(data)}\n\n`
+  if (payload === lastBroadcastPayload) return
+  lastBroadcastPayload = payload
   for (const res of clients) {
     res.write(payload)
   }
 }
 
 let pollInterval = null
+let seriesPollInterval = null
+
+async function pollSeries() {
+  try {
+    await Promise.all(
+      UMAMI_WEBSITES.map(async (site) => {
+        const series = await fetchPageviewSeries(site.id)
+        seriesCache.set(site.id, series)
+      })
+    )
+  } catch (err) {
+    console.error('Series poll error:', err.message)
+  }
+}
 
 function startPolling() {
   if (pollInterval) return
@@ -264,12 +289,17 @@ function startPolling() {
     try {
       const results = await Promise.all(
         UMAMI_WEBSITES.map(async (site) => {
-          const [visitors, { countries, urls }, series] = await Promise.all([
+          const [visitors, { countries, urls }] = await Promise.all([
             fetchActiveVisitors(site.id),
             fetchRealtime(site.id),
-            fetchPageviewSeries(site.id),
           ])
-          return { websiteId: site.id, visitors, countries, urls, series }
+          return {
+            websiteId: site.id,
+            visitors,
+            countries,
+            urls,
+            series: seriesCache.get(site.id) ?? [],
+          }
         })
       )
       broadcast(results)
@@ -278,8 +308,12 @@ function startPolling() {
     }
   }
 
-  poll()
-  pollInterval = setInterval(poll, POLL_INTERVAL_MS)
+  // Initial series fetch, then start the main poll loop
+  pollSeries().then(() => {
+    poll()
+    pollInterval = setInterval(poll, POLL_INTERVAL_MS)
+  })
+  seriesPollInterval = setInterval(pollSeries, SERIES_POLL_INTERVAL_MS)
 }
 
 // Heartbeat every 30s
@@ -317,9 +351,15 @@ app.get('/api/realtime/stream', (req, res) => {
 
   req.on('close', () => {
     clients.delete(res)
-    if (clients.size === 0 && pollInterval) {
-      clearInterval(pollInterval)
-      pollInterval = null
+    if (clients.size === 0) {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
+      if (seriesPollInterval) {
+        clearInterval(seriesPollInterval)
+        seriesPollInterval = null
+      }
     }
   })
 })

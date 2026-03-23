@@ -1,12 +1,12 @@
 {
-  "name": "umamidash-vue",
+  "name": "umamidash",
   "version": "0.1.0",
   "description": "Realtime analytics dashboard for self-hosted Umami instances",
   "author": "Charles Jones",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/charlesjones-dev/umamidash-vue.git"
+    "url": "https://github.com/charlesjones-dev/umamidash.git"
   },
   "keywords": [
     "umami",

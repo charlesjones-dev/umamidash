@@ -64,3 +64,68 @@ Theme switching works by setting CSS custom properties as inline styles on `<htm
 ## Deployment
 
 Deployed to Railway via `railway.toml`. Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+
+## Development Principles
+
+Follow SOLID, DRY, KISS, and YAGNI in all code changes:
+
+### SOLID
+
+- **Single Responsibility**: Each composable, component, or server route handler does one thing. Don't bolt unrelated logic together.
+- **Open/Closed**: Extend behavior through new composables, components, or route handlers, not by modifying stable existing ones.
+- **Interface Segregation**: Prefer small, focused TypeScript interfaces over large monolithic ones. Keep `src/types/index.ts` types narrow and purpose-built.
+- **Dependency Inversion**: Depend on TypeScript interfaces from `src/types/`, not concrete implementations. Components consume data via props and composables, not direct API calls.
+
+### DRY / Code Reuse
+
+- Never duplicate logic, types, or constants across client and server or between components.
+- Extract shared utilities into `src/lib/`. Import, don't copy.
+- Shared TypeScript interfaces live in `src/types/index.ts`. If a type is used by more than one component or composable, it belongs there.
+
+### KISS / Simplicity
+
+- Choose the simplest correct solution. Avoid abstractions, patterns, or indirection that don't solve a current problem.
+- Prefer simple types over complex generics unless the generic provides real reuse.
+- Three similar lines of code is better than a premature abstraction.
+
+### YAGNI / Scope Discipline
+
+- Do not build features, utilities, or infrastructure for hypothetical future needs.
+- Only implement what is explicitly requested. Recommending additional features is fine, but always ask before implementing them.
+
+### Modularity
+
+- Keep the Express server (`server.js`) and the Vue SPA (`src/`) loosely coupled. They communicate only through the defined API endpoints and SSE stream.
+- New features that touch both server and client should define their API contract (request/response shapes) in `src/types/index.ts` first, then implement on each side.
+- Structure code so new components or server endpoints can be added without modifying existing ones.
+
+### Component Architecture
+
+- Components must not import from sibling components. Extract shared functionality into composables (`src/composables/`) or standalone modules (`src/lib/`).
+- Use Vue composables for cross-component reactive state and shared logic. Use `@vueuse/core` utilities before writing custom composables that duplicate their functionality.
+- UI components are leaf nodes in the dependency graph. They consume data via props and emit events; they do not orchestrate other components.
+- shadcn-vue components in `src/components/ui/` are managed by the CLI. Do not manually edit them.
+
+### Type Safety
+
+- Maintain `strict: true` in tsconfig. Never weaken strict checks to fix type errors.
+- Never use `any`. Use `unknown` with type guards, proper generics, or discriminated unions instead.
+- Define API request/response types in `src/types/index.ts` so client composables and server endpoints share the same contract.
+
+### Error Handling
+
+- Never use empty catch blocks. At minimum, log the error with context.
+- Always handle promise rejections. Unhandled rejections crash Node.js processes.
+- Fail fast on invalid state. Don't let corrupt data propagate silently through the SSE stream.
+- Server endpoints should return structured error responses with consistent shape.
+
+### Testing Philosophy
+
+- Test behavior, not implementation. Tests should survive refactoring if behavior doesn't change.
+- Prefer integration tests that exercise real code paths over unit tests with heavy mocking.
+- Every bug fix should include a regression test.
+
+### Git
+
+- Never commit or push without explicit user consent. Do not commit, amend, or push to any branch unless the user directly asks.
+- Before every commit, review README.md and CLAUDE.md to ensure they reflect any changes made in the current session. Check for: new components, changed architecture, new endpoints, new composables, new scripts, changed configuration. Update documentation as needed before committing.

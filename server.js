@@ -433,16 +433,19 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Startup
-async function start() {
-  try {
-    await login()
-  } catch (err) {
-    console.error('Failed to authenticate with Umami:', err.message)
-    console.error('Server will start but SSE data will not be available until Umami is reachable.')
-  }
-
+function start() {
+  // Bind the port first so the healthcheck passes immediately. Authenticating
+  // before listening would block startup whenever Umami is slow or unreachable
+  // at boot (e.g. Railway private networking still initializing), which can
+  // exceed the deploy healthcheck timeout and fail the deploy. Polling re-runs
+  // login on demand via ensureToken(), so eager auth here is best-effort only.
   app.listen(PORT, () => {
     console.log(`UmamiDash server running on port ${PORT}`)
+  })
+
+  login().catch((err) => {
+    console.error('Failed to authenticate with Umami:', err.message)
+    console.error('Server started; SSE data will be available once Umami is reachable.')
   })
 }
 

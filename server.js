@@ -235,24 +235,34 @@ async function fetchPageviewSeries(websiteId) {
   })
   const data = await umamiGet(`/api/websites/${websiteId}/pageviews?${params}`)
 
-  // API returns local-tz timestamps like "2026-02-18 20:00:00"; backfill full 24h
-  const sparse = new Map()
-  for (const p of data.sessions ?? []) {
-    sparse.set(p.x, p.y)
-  }
+  // Umami returns hourly buckets whose timestamp format varies by Umami version
+  // and server timezone: "2026-02-18 20:00:00" (local-tz) or "2026-02-18T20:00:00Z"
+  // (UTC, used since v3.2.0 when the requested timezone resolves to UTC). Parse each
+  // bucket into an instant and key it by wall-clock hour so both formats match.
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
   })
+  const hourKey = (date) => {
+    const parts = fmt.formatToParts(date)
+    const g = (type) => parts.find((p) => p.type === type).value
+    return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:00:00`
+  }
+
+  const sparse = new Map()
+  for (const p of data.sessions ?? []) {
+    const d = new Date(p.x)
+    if (Number.isNaN(d.getTime())) continue
+    sparse.set(hourKey(d), p.y)
+  }
+
+  // Backfill full 24h, zero-filling hours with no data
   const series = []
   for (let i = 23; i >= 0; i--) {
     const t = new Date(now - i * 60 * 60 * 1000)
-    const parts = fmt.formatToParts(t)
-    const g = (type) => parts.find((p) => p.type === type).value
-    const key = `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:00:00`
-    series.push({ x: t.toISOString(), y: sparse.get(key) ?? 0 })
+    series.push({ x: t.toISOString(), y: sparse.get(hourKey(t)) ?? 0 })
   }
   return series
 }

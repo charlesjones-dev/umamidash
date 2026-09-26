@@ -63,7 +63,9 @@ Theme switching works by setting CSS custom properties as inline styles on `<htm
 
 ## Deployment
 
-Deployed to Railway via `railway.toml`. Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+Deployed to Railway (project `Umami`, service `umamidash`). Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+
+Build/deploy settings are declared in `.railway/railway.ts` (Railway Infrastructure as Code, `railway` dev dependency). Production still reads the deprecated `railway.toml` until the switchover in `docs/railway-iac.md` is done, so keep the two in sync until then. Railway never applies `.railway/` on deploy; changes land only via `railway config plan` / `railway config apply`, per environment. Never remove `export const partial` (without it an apply deletes every resource not in the file, including the `umami`, `Postgres` and `Valkey` services), and never regenerate the file with `railway config migrate` (it is lossy).
 
 ## Development Principles
 

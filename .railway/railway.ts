@@ -16,8 +16,10 @@
 //   (https://github.com/railwayapp/cli/issues/1199). None are set today, but a
 //   future regenerate would silently drop them if they were.
 // railway.toml has no comments to carry over. Restart policy, region and
-// replicas are not set there either; they stay dashboard-managed
-// (ON_FAILURE, 10 retries, us-east4, 1 replica at the time of migration).
+// replicas are not set there either, so they stay dashboard-managed.
+//
+// Typecheck after editing (the CLI silently ignores unknown keys); the command
+// is in docs/railway-iac.md.
 import { defineRailway, project, service } from 'railway/iac'
 
 // Named partial: this file owns only the resources it declares. Without it the

@@ -114,7 +114,7 @@ Get your website IDs from Umami dashboard: Settings, then Websites.
 
 1. Connect your repo to Railway
 2. Add Doppler integration or set environment variables directly
-3. Apply the build/deploy config in `.railway/railway.ts` (Railway Infrastructure as Code) from a linked checkout with `railway config plan` then `railway config apply`. Railway doesn't read it during deploys. Rename the service and project in the file if yours differ. See [docs/railway-iac.md](docs/railway-iac.md). (`railway.toml` is deprecated and only read by existing services until 2026-12-01.)
+3. Apply the build/deploy config in `.railway/railway.ts` (Railway Infrastructure as Code). Railway doesn't read it during deploys. From a checkout linked with the [Railway CLI](https://docs.railway.com/cli) (5.42.1+), run `pnpm install`, then `railway config plan`, then `railway config apply`. The file names the service `umamidash`: rename it to match your service first, or the apply creates a new, empty service. Review the plan before applying. See [docs/railway-iac.md](docs/railway-iac.md). (`railway.toml` is deprecated and only read by existing services until 2026-12-01.)
 
 Set `NODE_ENV=production` so the Express server serves the built SPA.
 

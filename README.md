@@ -57,7 +57,7 @@ The header includes a connection status dot (green = connected, yellow = reconne
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - pnpm
 - [Doppler CLI](https://docs.doppler.com/docs/install-cli) (or use a local `.env` file)
 - Self-hosted Umami instance (v2 or v3, tested against v3.2) - [deploy one on Railway](https://railway.com/deploy/umami-analytics)

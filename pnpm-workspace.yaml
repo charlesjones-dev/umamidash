@@ -2,3 +2,12 @@ allowBuilds:
   sharp: true
   esbuild: false
   vue-demi: false
+
+# Supply chain security. pnpm 11 reads only auth/registry settings from .npmrc,
+# so these must live here.
+# Refuse package versions published less than 3 days ago, including entries
+# already in the lockfile (a frozen install fails on them).
+minimumReleaseAge: 4320
+# `pnpm install` fails if pnpm-lock.yaml is out of sync with package.json
+# (`pnpm add` / `pnpm update` still update it).
+frozenLockfile: true

@@ -17,6 +17,8 @@ pnpm dlx shadcn-vue@latest add <name>  # Add a shadcn-vue component
 
 All `dev` scripts use `doppler run --` to inject secrets. Alternatively, copy `.env.example` to `.env` for local development without Doppler.
 
+pnpm 11 (pinned via `packageManager`) reads only auth/registry settings from `.npmrc`; all pnpm settings live in `pnpm-workspace.yaml`. It enforces a 3-day `minimumReleaseAge` (newer package versions are refused, and a frozen install fails if the lockfile contains one) and `frozenLockfile`. For an urgent fix younger than 3 days, add that package to `minimumReleaseAgeExclude` instead of lowering the age.
+
 ## Architecture
 
 Realtime analytics dashboard for self-hosted Umami instances. Two-process architecture:

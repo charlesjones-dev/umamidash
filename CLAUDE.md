@@ -65,7 +65,7 @@ Theme switching works by setting CSS custom properties as inline styles on `<htm
 
 Deployed to Railway (project `Umami`, service `umamidash`). Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
 
-Build/deploy settings are declared in `.railway/railway.ts` (Railway Infrastructure as Code, `railway` dev dependency). Production still reads the deprecated `railway.toml` until the switchover in `docs/railway-iac.md` is done, so keep the two in sync until then. Railway never applies `.railway/` on deploy; changes land only via `railway config plan` / `railway config apply`, per environment. Never remove `export const partial` (without it an apply deletes every resource not in the file, including the `umami`, `Postgres` and `Valkey` services), and never regenerate the file with `railway config migrate` (it is lossy).
+Build/deploy settings are declared in `.railway/railway.ts` (Railway Infrastructure as Code, `railway` dev dependency); see `docs/railway-iac.md`. Railway never applies `.railway/` on deploy; changes land only via `railway config plan` / `railway config apply`, per environment. Never remove `export const partial` (without it an apply deletes every resource not in the file, including the `umami`, `Postgres` and `Valkey` services). For `umamidash` itself, anything undeclared is deleted on apply: keep the `source`, `groupId` and every Railway variable (as `preserve()`) declared, and add new variables to the file before the next apply. Never regenerate the file with `railway config migrate` (it is lossy). Always check `railway config plan --verbose` shows 0 to destroy before applying.
 
 ## Development Principles
 

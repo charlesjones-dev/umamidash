@@ -16,7 +16,7 @@ The `umamidash` service's build and deploy settings live in [`.railway/railway.t
 |---|---|
 | `source` | GitHub `charlesjones-dev/umamidash`, branch `main`, check suites off |
 | `groupId` | `Umami` (canvas group; the group itself is not owned by this file) |
-| variables | 9, all `preserve()` |
+| variables | 10, all `preserve()` |
 | `build.builder` | `RAILPACK` |
 | `build.buildCommand` | `pnpm install --frozen-lockfile && pnpm build` |
 | `deploy.startCommand` | `node server.js` |

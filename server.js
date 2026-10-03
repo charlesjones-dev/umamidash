@@ -14,6 +14,7 @@ const UMAMI_PASSWORD = process.env.UMAMI_PASSWORD
 const GRID_COLUMNS = parseInt(process.env.GRID_COLUMNS || '3', 10)
 const GRID_ROWS = parseInt(process.env.GRID_ROWS || '2', 10)
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10)
+const CARTO_API_KEY = process.env.CARTO_API_KEY || null
 
 let UMAMI_WEBSITES = []
 try {
@@ -374,6 +375,7 @@ app.get('/api/config', (_req, res) => {
     rows: GRID_ROWS,
     pollInterval: POLL_INTERVAL_MS,
     umamiUrl: UMAMI_PUBLIC_URL,
+    cartoApiKey: CARTO_API_KEY,
   })
 })
 

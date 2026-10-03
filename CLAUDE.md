@@ -23,7 +23,7 @@ pnpm 11 (pinned via `packageManager`) reads only auth/registry settings from `.n
 
 Realtime analytics dashboard for self-hosted Umami instances. Two-process architecture:
 
-**Express server (`server.js`)** - Authenticates with Umami API via `UMAMI_API_ENDPOINT` (can be an internal network URL), polls active visitor counts (`/api/websites/:id/active`, 5-min window), realtime pageview data (`/api/realtime/:id`, filtered to 5-min window for countries/URLs), and 24h pageview history for each configured website, and pushes updates to all connected browsers via SSE. The `/api/config` endpoint returns `UMAMI_PUBLIC_URL` (falls back to `UMAMI_API_ENDPOINT`) so browser links point to the public Umami instance. Also serves an on-demand geocoded sessions endpoint (`/api/websites/:id/sessions/geo`) that fetches sessions from Umami and geocodes them via Nominatim (structured queries, 1 req/sec rate limit, in-memory cache). Manages Umami JWT token lifecycle (auto-refresh at 23h). No build step; plain JS, runs directly with Node.
+**Express server (`server.js`)** - Authenticates with Umami API via `UMAMI_API_ENDPOINT` (can be an internal network URL), polls active visitor counts (`/api/websites/:id/active`, 5-min window), realtime pageview data (`/api/realtime/:id`, filtered to 5-min window for countries/URLs), and 24h pageview history for each configured website, and pushes updates to all connected browsers via SSE. The `/api/config` endpoint returns `UMAMI_PUBLIC_URL` (falls back to `UMAMI_API_ENDPOINT`) so browser links point to the public Umami instance, plus `CARTO_API_KEY` (or `null`) for the session map's dark tiles. Also serves an on-demand geocoded sessions endpoint (`/api/websites/:id/sessions/geo`) that fetches sessions from Umami and geocodes them via Nominatim (structured queries, 1 req/sec rate limit, in-memory cache). Manages Umami JWT token lifecycle (auto-refresh at 23h). No build step; plain JS, runs directly with Node.
 
 **Vue 3 SPA (`src/`)** - Connects to `/api/realtime/stream` SSE endpoint. Displays a configurable grid of cards, each showing live visitor count, top countries, top URLs, and a 24h sparkline bar chart.
 
@@ -37,7 +37,7 @@ In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.confi
 
 ### Key Server Endpoints
 
-- `GET /api/config` - Returns website list, grid dimensions, poll interval, Umami URL
+- `GET /api/config` - Returns website list, grid dimensions, poll interval, Umami URL, CARTO API key
 - `GET /api/realtime/stream` - SSE stream; broadcasts poll results to all connected clients
 - `GET /api/websites/:websiteId/sessions/geo?window=N` - On-demand geocoded sessions for the map modal. Window values: 5, 30, 360, 720, 1440, 10080 (minutes). Uses Nominatim structured queries with in-memory geocode cache (persists for server lifetime). Rate-limited to 1 req/sec per Nominatim policy.
 - `GET /api/health` - Health check for Railway deployment
@@ -49,7 +49,7 @@ In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.confi
 - `src/composables/useTheme.ts` - Unified dark mode + theme color composable; applies CSS custom properties as inline styles on `documentElement`, persists to localStorage (`umamidash-dark-mode`, `umamidash-theme`)
 - `src/lib/themes.ts` - Theme definitions array; 4 base gray themes (Neutral, Zinc, Slate, Stone) override all CSS vars, 7 accent themes (Red, Rose, Orange, Green, Blue, Violet, Yellow) override primary/chart/sidebar-primary vars only
 - `src/components/ActiveVisitorCard.vue` - Per-website card with visitor count, countries, URLs, sparkline. Countries list is clickable (opens session map modal at 5-min window); when no visitors, a globe icon opens it at 30-min window. Mobile-responsive: smaller title/count, URL list limited to top 2 with max-width constraint.
-- `src/components/SessionMapModal.vue` - Full-screen dialog with Leaflet map showing geocoded session pins. Time window toggles (5m, 30m, 6h, 12h, 24h, 7d). Dark/light tile switching (OpenStreetMap / CartoDB dark_all). Themed circle markers using `--primary` CSS var. Auto-zoom `fitBounds` with `maxZoom: 5` (country level). Popup shows location, browser/OS, device/screen, language, last active time.
+- `src/components/SessionMapModal.vue` - Full-screen dialog with Leaflet map showing geocoded session pins. Time window toggles (5m, 30m, 6h, 12h, 24h, 7d). Dark/light tile switching (OpenStreetMap / CARTO dark_all; CARTO needs the `cartoApiKey` prop, else dark mode falls back to OpenStreetMap). Themed circle markers using `--primary` CSS var. Auto-zoom `fitBounds` with `maxZoom: 5` (country level). Popup shows location, browser/OS, device/screen, language, last active time.
 - `src/components/SparklineBackground.vue` - SVG bar chart rendered as card background with hover tooltips
 - `src/components/ThemeDropdown.vue` - Header dropdown for selecting theme color
 - `src/components/DarkModeToggle.vue` - Header button toggling light/dark mode

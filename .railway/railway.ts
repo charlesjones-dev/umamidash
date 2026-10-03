@@ -29,6 +29,7 @@ export default defineRailway(() => {
     // here. Add any new Railway variable to this list before the next apply,
     // or the apply deletes it.
     env: {
+      CARTO_API_KEY: preserve(),
       GRID_COLUMNS: preserve(),
       GRID_ROWS: preserve(),
       POLL_INTERVAL_MS: preserve(),

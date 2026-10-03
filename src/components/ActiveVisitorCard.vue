@@ -16,6 +16,7 @@ const props = defineProps<{
   urls: UrlData[]
   series: SeriesPoint[]
   realtimeUrl: string
+  cartoApiKey: string | null
 }>()
 
 const mapModalOpen = ref(false)
@@ -120,6 +121,7 @@ function fullUrl(path: string): string | undefined {
       :website-id="websiteId"
       :website-name="websiteName"
       :initial-window="mapInitialWindow"
+      :carto-api-key="cartoApiKey"
     />
   </Card>
 </template>

@@ -49,7 +49,7 @@ Each card displays:
 **Session Map Modal** — clicking the countries list or globe icon opens a full-screen dialog with a Leaflet world map. Each active session is plotted as a pin geocoded to city level via Nominatim. Features:
 - Time window toggles: 5m, 30m, 6h, 12h, 24h, 7d
 - Auto-zoom to fit all pins at country level
-- Dark/light map tiles (OpenStreetMap / CartoDB dark_all) matching the app theme
+- Dark/light map tiles (OpenStreetMap / CARTO dark_all) matching the app theme; dark tiles need `CARTO_API_KEY`
 - Themed markers using the active color theme
 - Popups with session details: location, browser/OS, device/screen, language, last active time
 
@@ -93,6 +93,7 @@ Open `http://localhost:5173` in your browser.
 | `GRID_COLUMNS` | Grid columns on Realtime page | `3` |
 | `GRID_ROWS` | Grid rows on Realtime page | `2` |
 | `POLL_INTERVAL_MS` | Umami poll interval (ms) | `5000` |
+| `CARTO_API_KEY` | [CARTO basemap key](https://carto.com/basemaps/apikey) for the dark session map tiles | unset: OpenStreetMap tiles in dark mode |
 | `PORT` | Server port | `3000` |
 
 Get your website IDs from Umami dashboard: Settings, then Websites.

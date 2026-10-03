@@ -17,6 +17,7 @@ const props = defineProps<{
   websiteId: string
   websiteName: string
   initialWindow?: number
+  cartoApiKey: string | null
 }>()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -59,8 +60,15 @@ function formatTimeAgo(iso: string): string {
 }
 
 const LIGHT_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+const DARK_TILES = 'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png'
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+
+// CARTO serves "API KEY REQUIRED" watermarked tiles without a key, so dark
+// mode falls back to the OSM tiles when CARTO_API_KEY is unset.
+function tileUrl(): string {
+  if (!isDark.value || !props.cartoApiKey) return LIGHT_TILES
+  return `${DARK_TILES}?key=${encodeURIComponent(props.cartoApiKey)}`
+}
 
 function getMarkerColor(): string {
   // Read the --primary CSS var and convert oklch → hex via canvas
@@ -97,7 +105,7 @@ async function fetchSessions() {
 function updateTiles() {
   if (!map || !tileLayer) return
   map.removeLayer(tileLayer)
-  tileLayer = L.tileLayer(isDark.value ? DARK_TILES : LIGHT_TILES, { attribution: ATTRIBUTION })
+  tileLayer = L.tileLayer(tileUrl(), { attribution: ATTRIBUTION })
   tileLayer.addTo(map)
 }
 
@@ -153,7 +161,7 @@ function initMap() {
     attributionControl: true,
   }).setView([20, 0], 2)
 
-  tileLayer = L.tileLayer(isDark.value ? DARK_TILES : LIGHT_TILES, { attribution: ATTRIBUTION })
+  tileLayer = L.tileLayer(tileUrl(), { attribution: ATTRIBUTION })
   tileLayer.addTo(map)
 
   markerLayer = L.layerGroup().addTo(map)

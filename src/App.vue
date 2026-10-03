@@ -74,6 +74,7 @@ onMounted(async () => {
           :urls="urls.get(site.id) ?? []"
           :series="series.get(site.id) ?? []"
           :realtime-url="`${config.umamiUrl}/websites/${site.id}/realtime`"
+          :carto-api-key="config.cartoApiKey"
           :style="index === config.websites.length - 1 && lastCardSpan > 1
             ? { gridColumn: `span ${lastCardSpan}` }
             : undefined"

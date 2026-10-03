@@ -10,6 +10,7 @@ export interface DashboardConfig {
   rows: number
   pollInterval: number
   umamiUrl: string
+  cartoApiKey: string | null
 }
 
 export interface CountryData {

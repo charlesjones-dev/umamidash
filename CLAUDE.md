@@ -40,7 +40,7 @@ In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.confi
 - `GET /api/config` - Returns website list, grid dimensions, poll interval, Umami URL, CARTO API key
 - `GET /api/realtime/stream` - SSE stream; broadcasts poll results to all connected clients
 - `GET /api/websites/:websiteId/sessions/geo?window=N` - On-demand geocoded sessions for the map modal. Window values: 5, 30, 360, 720, 1440, 10080 (minutes). Uses Nominatim structured queries with in-memory geocode cache (persists for server lifetime). Rate-limited to 1 req/sec per Nominatim policy.
-- `GET /api/health` - Health check for Railway deployment
+- `GET /api/health` - Health check
 
 ### Client Structure
 
@@ -65,9 +65,9 @@ Theme switching works by setting CSS custom properties as inline styles on `<htm
 
 ## Deployment
 
-Deployed to Railway (project `Umami`, service `umamidash`). Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. Health check: `/api/health`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
 
-Build/deploy settings are declared in `.railway/railway.ts` (Railway Infrastructure as Code, `railway` dev dependency); see `docs/railway-iac.md`. Railway never applies `.railway/` on deploy; changes land only via `railway config plan` / `railway config apply`, per environment. Never remove `export const partial` (without it an apply deletes every resource not in the file, including the `umami`, `Postgres` and `Valkey` services). For `umamidash` itself, anything undeclared is deleted on apply: keep the `source`, `groupId` and every Railway variable (as `preserve()`) declared, and add new variables to the file before the next apply. Never regenerate the file with `railway config migrate` (it is lossy). Always check `railway config plan --verbose` shows 0 to destroy before applying.
+The Node.js version is pinned to an exact release in `.nvmrc`, the only Node version source. Build tools such as Railpack and mise read it, and they also read `.node-version`, `mise.toml` and `.tool-versions`, so don't add any of those for Node: one could win over `.nvmrc`. Bump the pin for each Node.js security release.
 
 ## Development Principles
 

@@ -448,7 +448,7 @@ if (process.env.NODE_ENV === 'production') {
 function start() {
   // Bind the port first so the healthcheck passes immediately. Authenticating
   // before listening would block startup whenever Umami is slow or unreachable
-  // at boot (e.g. Railway private networking still initializing), which can
+  // at boot (e.g. a private network still initializing), which can
   // exceed the deploy healthcheck timeout and fail the deploy. Polling re-runs
   // login on demand via ensureToken(), so eager auth here is best-effort only.
   app.listen(PORT, () => {

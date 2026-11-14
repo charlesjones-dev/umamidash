@@ -1,6 +1,6 @@
 # UmamiDash
 
-Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances. Built with Vue 3, shadcn-vue, and Express.
+Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances. Built with Vue 3 and shadcn-vue. Runs as a Cloudflare Worker (recommended, the Workers Free plan is enough) or as a Node.js server.
 
 ## Preview
 
@@ -28,15 +28,20 @@ Realtime analytics dashboard for self-hosted [Umami](https://umami.is) instances
 
 ## How It Works
 
-UmamiDash runs a lightweight Express server that authenticates with your Umami instance, polls active visitor counts and pageview history, and pushes updates to the browser via Server-Sent Events (SSE). The Vue frontend displays a grid of cards showing live visitor counts per website with 24-hour sparkline bar charts. Click on the countries list to open an interactive world map showing geocoded session pins.
+The server logs in to your Umami instance, polls the active visitor counts, realtime pageviews and 24-hour history of each website, and pushes every change to the browser. The Vue frontend shows a grid of cards with live visitor counts per website and 24-hour sparkline bar charts. Click the countries list to open a world map of geocoded sessions.
 
 ```
-Browser  ←—SSE—→  Express (:3000)  —polls→  Umami API
-                                     ├── /api/websites/:id/active (active visitor count, 5-min window)
-                                     ├── /api/realtime/:id (countries, URLs, filtered to 5-min window)
-                                     ├── /api/websites/:id/pageviews (24h hourly sessions)
-                                     └── /api/websites/:id/sessions/geo (on-demand geocoded sessions for map)
+Browser  ←—WebSocket or SSE—→  Server  —polls→  Umami API
+                                 ├── /api/websites/:id/active (active visitor count, 5-min window)
+                                 ├── /api/realtime/:id (countries, URLs, filtered to 5-min window)
+                                 ├── /api/websites/:id/pageviews (24h hourly sessions)
+                                 └── /api/websites/:id/sessions (on demand, geocoded for the map)
 ```
+
+The server comes in two forms that share one Umami client (`core/`):
+
+- **Cloudflare Worker** (`worker/`): static assets serve the app, and one Durable Object polls Umami on an alarm while at least one browser is connected. Browsers connect over WebSockets that hibernate between polls, so the Durable Object is billed only while a poll runs. It also answers SSE.
+- **Node.js server** (`server.js`): Express serves the app and the API, and streams to the browser over SSE.
 
 Each card displays:
 - Live active visitor count (center)
@@ -46,7 +51,7 @@ Each card displays:
 - Link to the Umami realtime view (bottom-right)
 - Globe icon (top-right, shown when no active visitors) to open the session map with a 30-minute window
 
-**Session Map Modal** — clicking the countries list or globe icon opens a full-screen dialog with a Leaflet world map. Each active session is plotted as a pin geocoded to city level via Nominatim. Features:
+**Session Map Modal**: clicking the countries list or globe icon opens a full-screen dialog with a Leaflet world map. Each active session is plotted as a pin geocoded to city level via Nominatim (at most 1 request a second, results cached). Features:
 - Time window toggles: 5m, 30m, 6h, 12h, 24h, 7d
 - Auto-zoom to fit all pins at country level
 - Dark/light map tiles (OpenStreetMap / CARTO dark_all) matching the app theme; dark tiles need `CARTO_API_KEY`
@@ -57,12 +62,74 @@ The header includes a connection status dot (green = connected, yellow = reconne
 
 ## Prerequisites
 
-- Node.js 22 (the exact release is pinned in `.nvmrc`; `nvm install` picks it up)
-- pnpm
-- [Doppler CLI](https://docs.doppler.com/docs/install-cli) (or use a local `.env` file)
-- Self-hosted Umami instance (v2 or v3, tested against v3.2) - see [Umami's install guide](https://umami.is/docs/install)
+- Node.js 22.18 or newer (`.nvmrc` pins the exact release; `nvm install` picks it up)
+- pnpm (the version is pinned in `package.json`; `corepack enable` picks it up)
+- A self-hosted Umami instance (v2 or v3, tested against v3.2), see [Umami's install guide](https://umami.is/docs/install). Use a dedicated Umami user that can only view the websites.
+- For the Worker: a Cloudflare account. The Workers Free plan is enough.
 
-## Quick Start
+## Deploy to Cloudflare Workers (recommended)
+
+The Worker needs no server of your own. On the Workers Free plan it fits well inside the daily limits: one Durable Object serves every browser, and it hibernates between polls.
+
+1. Install and sign in:
+
+   ```bash
+   pnpm install
+   pnpm wrangler login
+   ```
+
+2. Deploy. This builds the app and deploys the Worker `umamidash` with its Durable Object:
+
+   ```bash
+   pnpm deploy:worker
+   ```
+
+   The `pnpm` scripts deploy the top-level config (`--env=""`). The environment `service-binding` in `wrangler.jsonc` is for an Umami that runs as a Worker (see "Reaching Umami from the Worker").
+
+3. Set the settings as secrets. Put them in a JSON file outside the repo, then upload them in one step:
+
+   ```json
+   {
+     "UMAMI_API_ENDPOINT": "https://analytics.example.com",
+     "UMAMI_USERNAME": "dashboard",
+     "UMAMI_PASSWORD": "…",
+     "UMAMI_WEBSITES": "[{\"id\":\"website-uuid\",\"name\":\"Example\"}]"
+   }
+   ```
+
+   ```bash
+   pnpm wrangler secret bulk ~/umamidash-secrets.json --env=""
+   ```
+
+   Add any optional variable from the table below the same way. Until the required ones are set, `GET /api/health` answers 503.
+
+4. Protect the dashboard. The app has no login of its own, so put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/) in front of it:
+   - For the workers.dev address: Workers & Pages → `umamidash` → Settings → Domains & Routes → workers.dev → Enable Cloudflare Access.
+   - For your own host name: add a route or custom domain in the dashboard, and a self-hosted Access application for that host name.
+
+   Then let the Worker check the Access token too, by setting the secrets `ACCESS_AUD` (the application's Audience (AUD) tag) and `ACCESS_TEAM_DOMAIN` (such as `yourteam.cloudflareaccess.com`). If an Access policy bypasses Access for some IP addresses, list them in `HOME_IPS`, because a bypassed request carries no token. `HOME_IPS` matches exact addresses only, with no ranges, so it doesn't suit an IPv6 prefix that changes. `GET /api/health` stays open for uptime monitors.
+
+5. Optional: deploy on every push with [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/). Connect the repository in the Worker's Settings → Builds, with build command `pnpm build` and deploy command `npx wrangler deploy --env=""`.
+
+Routes and custom domains stay out of `wrangler.jsonc`, so a deploy never changes them. If you serve the dashboard only from your own host name, set `"workers_dev": false` in `wrangler.jsonc`.
+
+### Reaching Umami from the Worker
+
+The Worker calls `UMAMI_API_ENDPOINT` with `fetch`, so Umami must be reachable from Cloudflare's network, including its login endpoint `/api/auth/login`. A firewall rule that allows the login only from your own IP blocks the Worker.
+
+If Umami runs as a Worker in the same Cloudflare account, use a [service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) named `UMAMI` instead. A Worker's `fetch` to a host on its own zone goes to the origin, not to that host's Worker, so a binding is the way to reach it. The environment `service-binding` in `wrangler.jsonc` does this for a Worker named `umami` (change `service` if yours has another name), with workers.dev off. Deploy it with `pnpm build && pnpm wrangler deploy --env service-binding`, and pass `--env service-binding` to `wrangler secret bulk` too. With the binding, `UMAMI_API_ENDPOINT` is not needed, and the Worker calls `https://<UMAMI_PUBLIC_URL host>/api/...` through it.
+
+### How the Worker polls
+
+- One Durable Object, `RealtimeHub`, serves every browser. It polls only while a browser is connected, and stops when the last one leaves.
+- It logs in on an alarm of its own, then fetches the active count and realtime data of every site each poll interval, and the 24-hour series every 5 minutes. One alarm makes at most 25 calls to Umami, because a Worker may make 32 calls to a service binding per invocation. Work that doesn't fit runs on the next alarm, 1 second later. With 11 websites, the first poll makes 25 calls and the next one 8, then each poll makes 22.
+- It keeps the Umami token, the latest data and the geocoding cache in its SQLite storage, so they survive hibernation. One map request makes at most 20 Nominatim requests; the places left over are looked up on the next request.
+- A failed call doesn't make the hub retry sooner: that site is tried again on the next poll. Each call to Umami or Nominatim gives up after 10 seconds.
+- Each poll writes two rows to storage: the data and the next alarm. At the default 5-second interval that is about 35,000 rows a day, inside the Free plan's 100,000. On the Free plan, keep `POLL_INTERVAL_MS` at 2000 or more. With more than 12 websites, each poll needs a second alarm 1 second later, which doubles the rows, so use 5000 or more.
+
+## Run on Node.js
+
+The Express server is the other way to run UmamiDash, on any host that runs Node.js.
 
 ```bash
 # Install dependencies
@@ -81,20 +148,33 @@ pnpm dev
 
 Open `http://localhost:5173` in your browser.
 
+**Upgrading from an earlier version:** `server.js` now imports `core/` and `src/lib/`, and needs Node.js 22.18 or newer to run their TypeScript directly. Copy the whole repository to the host (an image that holds only `server.js` and `dist/` no longer starts). A `POLL_INTERVAL_MS` under 1000 now counts as 1000. Each call to Umami now gives up after 10 seconds, so a very slow Umami shows errors in the log instead of late data.
+
+To deploy it:
+
+- Build: `pnpm install --frozen-lockfile && pnpm build`
+- Start: `node server.js`, with `NODE_ENV=production` so the server also serves the built app
+- Health check: `GET /api/health`
+
+Set the environment variables below on the host, or inject them with Doppler. There is no built-in authentication, so put access control in front of it (for example Cloudflare Access).
+
 ## Environment Variables
 
 | Variable | Description | Default |
 |---|---|---|
-| `UMAMI_API_ENDPOINT` | Umami API URL for server-side polling | required |
+| `UMAMI_API_ENDPOINT` | Umami API URL for server-side polling | required (a Worker with the `UMAMI` binding can leave it out) |
 | `UMAMI_PUBLIC_URL` | Public-facing Umami URL for browser links | defaults to `UMAMI_API_ENDPOINT` |
 | `UMAMI_USERNAME` | Umami login username | required |
 | `UMAMI_PASSWORD` | Umami login password | required |
 | `UMAMI_WEBSITES` | JSON array: `[{"id":"uuid","name":"Display Name"}]` | required |
 | `GRID_COLUMNS` | Grid columns on Realtime page | `3` |
 | `GRID_ROWS` | Grid rows on Realtime page | `2` |
-| `POLL_INTERVAL_MS` | Umami poll interval (ms) | `5000` |
+| `POLL_INTERVAL_MS` | Umami poll interval (ms), at least 1000 | `5000` |
 | `CARTO_API_KEY` | [CARTO basemap key](https://carto.com/basemaps/apikey) for the dark session map tiles | unset: OpenStreetMap tiles in dark mode |
-| `PORT` | Server port | `3000` |
+| `PORT` | Node server port | `3000` |
+| `ACCESS_AUD` | Worker only: Cloudflare Access application AUD tag. With `ACCESS_TEAM_DOMAIN`, turns the token check on | unset: no check |
+| `ACCESS_TEAM_DOMAIN` | Worker only: Access team domain, such as `yourteam.cloudflareaccess.com` | unset: no check |
+| `HOME_IPS` | Worker only: comma-separated IPs (exact addresses) that an Access bypass policy lets through without a token | unset |
 
 Get your website IDs from Umami dashboard: Settings, then Websites.
 
@@ -105,21 +185,14 @@ Get your website IDs from Umami dashboard: Settings, then Websites.
 | `pnpm dev` | Start Express + Vite dev servers |
 | `pnpm dev:server` | Start Express only |
 | `pnpm dev:client` | Start Vite only |
-| `pnpm build` | Build Vue SPA for production |
-| `pnpm start` | Start production server |
+| `pnpm dev:worker` | Build the app and run the Worker locally with `wrangler dev` (reads `.dev.vars` or `.env`) |
+| `pnpm build` | Build the Vue app for production |
+| `pnpm start` | Start the Node server |
+| `pnpm deploy:worker` | Build the app and deploy the Worker |
+| `pnpm stub:umami` | Run a stand-in Umami API on port 3999 for local tries, and print the variables that point to it |
+| `pnpm typecheck` | Type-check the app, `core/`, `server.js` and the Worker |
+| `pnpm test` | Run the tests: `core/` in Node, the Worker and its Durable Object in workerd |
 | `pnpm setup:doppler` | Configure Doppler service token |
-
-## Deployment
-
-Any host that runs Node.js works. Use the Node.js release in `.nvmrc`.
-
-- Build: `pnpm install --frozen-lockfile && pnpm build`
-- Start: `node server.js`
-- Health check: `GET /api/health`
-
-Set the environment variables above on the host, or inject them with Doppler. Set `NODE_ENV=production` so the Express server serves the built SPA.
-
-Access control is intended to be handled externally (e.g., Cloudflare Zero Trust). There is no built-in authentication.
 
 ## Adding UI Components
 

@@ -1,385 +1,114 @@
+// UmamiDash on Node.js: Express serves the API and the built SPA, and streams
+// realtime data over SSE. The Umami logic lives in core/, which the
+// Cloudflare Worker (worker/) shares. Node 22.18 or newer runs the .ts
+// imports directly (type stripping), so there is no build step.
 import express from 'express'
 import compression from 'compression'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dashboardConfig, isConfiguredWebsite, parseSettings } from './core/config.ts'
+import { fetchGeocodedSessions, Geocoder, memoryGeocodeCache, parseWindowMinutes } from './core/geocode.ts'
+import { RealtimePoller } from './core/poller.ts'
+import { errorMessage, memoryStore, systemClock, UNLIMITED } from './core/runtime.ts'
+import { UmamiClient } from './core/umami-client.ts'
+import { REALTIME_STREAM_PATH } from './src/lib/realtime-protocol.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-
-const app = express()
 const PORT = process.env.PORT || 3000
-const UMAMI_API_ENDPOINT = process.env.UMAMI_API_ENDPOINT
-const UMAMI_PUBLIC_URL = process.env.UMAMI_PUBLIC_URL || UMAMI_API_ENDPOINT
-const UMAMI_USERNAME = process.env.UMAMI_USERNAME
-const UMAMI_PASSWORD = process.env.UMAMI_PASSWORD
-const GRID_COLUMNS = parseInt(process.env.GRID_COLUMNS || '3', 10)
-const GRID_ROWS = parseInt(process.env.GRID_ROWS || '2', 10)
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10)
-const CARTO_API_KEY = process.env.CARTO_API_KEY || null
+const SSE_HEARTBEAT_MS = 30_000
 
-let UMAMI_WEBSITES = []
-try {
-  UMAMI_WEBSITES = JSON.parse(process.env.UMAMI_WEBSITES || '[]')
-} catch {
-  console.error('UMAMI_WEBSITES is not valid JSON. Expected: [{"id":"uuid","name":"Display Name"}]')
+const parsed = parseSettings(process.env)
+if (!parsed.ok) {
+  for (const error of parsed.errors) console.error(error)
   process.exit(1)
 }
+for (const warning of parsed.warnings) console.warn(warning)
+const settings = parsed.settings
+const endpoint = /** @type {string} */ (settings.umamiApiEndpoint)
 
-if (!UMAMI_API_ENDPOINT || !UMAMI_USERNAME || !UMAMI_PASSWORD) {
-  console.error('Missing required environment variables: UMAMI_API_ENDPOINT, UMAMI_USERNAME, UMAMI_PASSWORD')
-  process.exit(1)
-}
+const store = memoryStore()
+const client = new UmamiClient({
+  transport: (path, init) => fetch(`${endpoint}${path}`, init),
+  username: settings.username,
+  password: settings.password,
+  store,
+  clock: systemClock,
+})
+const poller = new RealtimePoller({
+  client,
+  websites: settings.websites,
+  pollIntervalMs: settings.pollIntervalMs,
+  maxCallsPerTick: UNLIMITED,
+  store,
+  clock: systemClock,
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+})
+const geocoder = new Geocoder({ cache: memoryGeocodeCache(), clock: systemClock })
 
-app.use(compression({
-  filter: (req) => req.path !== '/api/realtime/stream',
-}))
-
-let umamiToken = null
-let tokenTimestamp = 0
-const TOKEN_REFRESH_MS = 23 * 60 * 60 * 1000 // 23 hours
-
-// Geocoding cache: "country:region:city" → { lat, lng }
-const geocodeCache = new Map()
-let lastNominatimCall = 0
-
-async function geocodeCity(country, region, city) {
-  const key = `${country}:${region}:${city}`
-  if (geocodeCache.has(key)) return geocodeCache.get(key)
-
-  // Rate limit: 1 request per second (Nominatim policy)
-  const now = Date.now()
-  const wait = Math.max(0, 1000 - (now - lastNominatimCall))
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
-  lastNominatimCall = Date.now()
-
-  // Extract state/province from subdivision code (e.g. "US-GA" → "GA")
-  const state = region && region.includes('-') ? region.split('-').slice(1).join('-') : region
-
-  // Build structured queries in order of specificity
-  const queries = [
-    // Most specific: city + state + country
-    city && state && country ? { city, state, country } : null,
-    // City + country only
-    city && country ? { city, country } : null,
-    // Country-level fallback
-    country ? { country } : null,
-  ].filter(Boolean)
-
-  for (const params of queries) {
-    try {
-      const qs = new URLSearchParams({ format: 'json', limit: '1', ...params })
-      const url = `https://nominatim.openstreetmap.org/search?${qs}`
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'UmamiDash/1.0' },
-      })
-      if (!res.ok) continue
-      const results = await res.json()
-      if (results.length > 0) {
-        const coords = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) }
-        geocodeCache.set(key, coords)
-        return coords
-      }
-    } catch {
-      // Try next query
-    }
-  }
-
-  // Fallback: null (skip this session on the map)
-  geocodeCache.set(key, null)
-  return null
-}
-
-async function fetchGeocodedSessions(websiteId, windowMinutes) {
-  const now = Date.now()
-  const startAt = now - windowMinutes * 60 * 1000
-  const params = new URLSearchParams({
-    startAt: String(startAt),
-    endAt: String(now),
-    pageSize: '200',
-  })
-  const data = await umamiGet(`/api/websites/${websiteId}/sessions?${params}`)
-  const sessions = data.data ?? data ?? []
-
-  // Collect unique city keys for batch geocoding
-  const cityKeys = new Map() // "country:region:city" → first occurrence
-  for (const s of sessions) {
-    const key = `${s.country || ''}:${s.subdivision1 || s.region || ''}:${s.city || ''}`
-    if (!cityKeys.has(key)) {
-      cityKeys.set(key, { country: s.country || '', region: s.subdivision1 || s.region || '', city: s.city || '' })
-    }
-  }
-
-  // Geocode sequentially (cache makes repeat calls instant)
-  for (const { country, region, city } of cityKeys.values()) {
-    await geocodeCity(country, region, city)
-  }
-
-  // Build result array
-  const result = []
-  for (const s of sessions) {
-    const key = `${s.country || ''}:${s.subdivision1 || s.region || ''}:${s.city || ''}`
-    const coords = geocodeCache.get(key)
-    if (!coords) continue
-    result.push({
-      id: s.id,
-      country: s.country || '',
-      region: s.subdivision1 || s.region || '',
-      city: s.city || '',
-      lat: coords.lat,
-      lng: coords.lng,
-      browser: s.browser || '',
-      os: s.os || '',
-      device: s.device || '',
-      screen: s.screen || '',
-      language: s.language || '',
-      firstAt: s.firstAt || s.createdAt || '',
-      lastAt: s.lastAt || s.createdAt || '',
-    })
-  }
-  return result
-}
-
-async function login() {
-  const res = await fetch(`${UMAMI_API_ENDPOINT}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: UMAMI_USERNAME, password: UMAMI_PASSWORD }),
-  })
-  if (!res.ok) throw new Error(`Umami login failed: ${res.status}`)
-  const data = await res.json()
-  umamiToken = data.token
-  tokenTimestamp = Date.now()
-}
-
-async function ensureToken() {
-  if (!umamiToken || Date.now() - tokenTimestamp > TOKEN_REFRESH_MS) {
-    await login()
-  }
-}
-
-async function umamiGet(path, retries = 3) {
-  await ensureToken()
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(`${UMAMI_API_ENDPOINT}${path}`, {
-      headers: { Authorization: `Bearer ${umamiToken}` },
-    })
-    if (res.status === 401) {
-      await login()
-      continue
-    }
-    if (res.status === 429) {
-      const retryAfter = parseInt(res.headers.get('retry-after'), 10)
-      const delay = (retryAfter && retryAfter > 0 ? retryAfter : Math.pow(2, attempt)) * 1000
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, delay))
-        continue
-      }
-      throw new Error(`Umami rate limited: ${path}`)
-    }
-    if (!res.ok) throw new Error(`Umami fetch failed: ${res.status}`)
-    return res.json()
-  }
-  throw new Error(`Umami fetch failed after ${retries} retries: ${path}`)
-}
-
-async function fetchActiveVisitors(websiteId) {
-  const data = await umamiGet(`/api/websites/${websiteId}/active`)
-  return data.visitors ?? 0
-}
-
-async function fetchRealtime(websiteId) {
-  const data = await umamiGet(`/api/realtime/${websiteId}`)
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
-
-  // Filter events to last 5 minutes to match the active visitor window
-  const recentPageviews = (data.events ?? []).filter(
-    (pv) => new Date(pv.createdAt) >= fiveMinAgo
-  )
-
-  // Aggregate countries from recent pageviews (unique sessions per country)
-  const countrySessions = {}
-  for (const pv of recentPageviews) {
-    if (pv.country) {
-      if (!countrySessions[pv.country]) countrySessions[pv.country] = new Set()
-      countrySessions[pv.country].add(pv.sessionId ?? pv.id)
-    }
-  }
-  const countries = Object.entries(countrySessions)
-    .map(([country, sessions]) => ({ country, visitors: sessions.size }))
-    .sort((a, b) => b.visitors - a.visitors)
-    .slice(0, 5)
-
-  // Aggregate URLs from recent pageviews
-  const urlSessions = {}
-  for (const pv of recentPageviews) {
-    if (pv.urlPath) {
-      if (!urlSessions[pv.urlPath]) urlSessions[pv.urlPath] = new Set()
-      urlSessions[pv.urlPath].add(pv.sessionId ?? pv.id)
-    }
-  }
-  const urls = Object.entries(urlSessions)
-    .map(([url, sessions]) => ({ url, visitors: sessions.size }))
-    .sort((a, b) => b.visitors - a.visitors)
-    .slice(0, 5)
-
-  return { countries, urls }
-}
-
-async function fetchPageviewSeries(websiteId) {
-  const now = Date.now()
-  const startAt = now - 24 * 60 * 60 * 1000
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-  const params = new URLSearchParams({
-    startAt: String(startAt),
-    endAt: String(now),
-    unit: 'hour',
-    timezone: tz,
-  })
-  const data = await umamiGet(`/api/websites/${websiteId}/pageviews?${params}`)
-
-  // Umami returns hourly buckets whose timestamp format varies by Umami version
-  // and server timezone: "2026-02-18 20:00:00" (local-tz) or "2026-02-18T20:00:00Z"
-  // (UTC, used since v3.2.0 when the requested timezone resolves to UTC). Parse each
-  // bucket into an instant and key it by wall-clock hour so both formats match.
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  })
-  const hourKey = (date) => {
-    const parts = fmt.formatToParts(date)
-    const g = (type) => parts.find((p) => p.type === type).value
-    return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:00:00`
-  }
-
-  const sparse = new Map()
-  for (const p of data.sessions ?? []) {
-    const d = new Date(p.x)
-    if (Number.isNaN(d.getTime())) continue
-    sparse.set(hourKey(d), p.y)
-  }
-
-  // Backfill full 24h, zero-filling hours with no data
-  const series = []
-  for (let i = 23; i >= 0; i--) {
-    const t = new Date(now - i * 60 * 60 * 1000)
-    series.push({ x: t.toISOString(), y: sparse.get(hourKey(t)) ?? 0 })
-  }
-  return series
-}
-
-// Cached series data (updated every 5 minutes, not every poll)
-const SERIES_POLL_INTERVAL_MS = 5 * 60 * 1000
-const seriesCache = new Map() // websiteId → series array
-
-// SSE
+// SSE clients, and the poll loop that runs while at least one is connected
+/** @type {Set<import('express').Response>} */
 const clients = new Set()
+/** @type {ReturnType<typeof setTimeout> | null} */
+let pollTimer = null
+let polling = false
 
-let lastBroadcastData = null
-let lastBroadcastPayload = ''
-
-function broadcast(data) {
-  const payload = `data: ${JSON.stringify(data)}\n\n`
-  if (payload === lastBroadcastPayload) return
-  lastBroadcastData = data
-  lastBroadcastPayload = payload
-  for (const res of clients) {
-    res.write(payload)
-  }
+/** @param {import('./src/types/index.ts').RealtimeData[]} snapshot */
+function payloadOf(snapshot) {
+  return snapshot.length > 0 ? `data: ${JSON.stringify(snapshot)}\n\n` : ''
 }
 
-let pollInterval = null
-let seriesPollInterval = null
-
-async function pollSeries() {
+async function poll() {
+  pollTimer = null
+  if (clients.size === 0 || polling) return
+  polling = true
+  let nextDelayMs = settings.pollIntervalMs
   try {
-    await Promise.all(
-      UMAMI_WEBSITES.map(async (site) => {
-        const series = await fetchPageviewSeries(site.id)
-        seriesCache.set(site.id, series)
-      })
-    )
+    const result = await poller.tick()
+    if (result.errors.length > 0) {
+      console.error(`Poll errors (${result.errors.length}): ${result.errors.join('; ')}`)
+    }
+    nextDelayMs = result.nextDelayMs
+    if (result.changed) {
+      const payload = payloadOf(result.snapshot)
+      for (const res of clients) res.write(payload)
+    }
   } catch (err) {
-    console.error('Series poll error:', err.message)
+    console.error('Poll error:', errorMessage(err))
+  } finally {
+    polling = false
   }
+  if (clients.size > 0) pollTimer = setTimeout(poll, nextDelayMs)
 }
 
 function startPolling() {
-  if (pollInterval) return
-
-  async function poll() {
-    if (clients.size === 0) return
-    try {
-      const results = await Promise.all(
-        UMAMI_WEBSITES.map(async (site) => {
-          const [visitors, { countries, urls }] = await Promise.all([
-            fetchActiveVisitors(site.id),
-            fetchRealtime(site.id),
-          ])
-          return {
-            websiteId: site.id,
-            visitors,
-            countries,
-            urls,
-            series: seriesCache.get(site.id) ?? [],
-          }
-        })
-      )
-      broadcast(results)
-    } catch (err) {
-      console.error('Poll error:', err.message)
-    }
-  }
-
-  // First poll fetches series inline; subsequent series updates every 5 minutes
-  async function initialPoll() {
-    try {
-      const results = await Promise.all(
-        UMAMI_WEBSITES.map(async (site) => {
-          const [visitors, { countries, urls }, series] = await Promise.all([
-            fetchActiveVisitors(site.id),
-            fetchRealtime(site.id),
-            fetchPageviewSeries(site.id),
-          ])
-          seriesCache.set(site.id, series)
-          return { websiteId: site.id, visitors, countries, urls, series }
-        })
-      )
-      broadcast(results)
-    } catch (err) {
-      console.error('Initial poll error:', err.message)
-    }
-  }
-
-  initialPoll()
-  seriesPollInterval = setInterval(pollSeries, SERIES_POLL_INTERVAL_MS)
-  pollInterval = setInterval(poll, POLL_INTERVAL_MS)
+  if (pollTimer || polling) return
+  pollTimer = setTimeout(poll, 0)
 }
 
-// Heartbeat every 30s
-setInterval(() => {
-  for (const res of clients) {
-    res.write(': heartbeat\n\n')
-  }
-}, 30000)
+function stopPolling() {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = null
+}
 
-// Routes
+setInterval(() => {
+  for (const res of clients) res.write(': heartbeat\n\n')
+}, SSE_HEARTBEAT_MS)
+
+const app = express()
+
+app.use(compression({
+  filter: (/** @type {import('express').Request} */ req) => req.path !== REALTIME_STREAM_PATH,
+}))
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'OK' })
 })
 
 app.get('/api/config', (_req, res) => {
-  res.json({
-    websites: UMAMI_WEBSITES,
-    columns: GRID_COLUMNS,
-    rows: GRID_ROWS,
-    pollInterval: POLL_INTERVAL_MS,
-    umamiUrl: UMAMI_PUBLIC_URL,
-    cartoApiKey: CARTO_API_KEY,
-  })
+  res.json(dashboardConfig(settings, 'sse'))
 })
 
-app.get('/api/realtime/stream', (req, res) => {
+app.get(REALTIME_STREAM_PATH, (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -387,43 +116,30 @@ app.get('/api/realtime/stream', (req, res) => {
   })
   res.write('\n')
 
-  // Send last known data immediately so refreshing clients don't wait for next poll
-  if (lastBroadcastPayload) {
-    res.write(lastBroadcastPayload)
-  }
+  // Send the last known data at once, so a refreshed page doesn't wait for the next poll
+  const payload = payloadOf(poller.snapshot())
+  if (payload) res.write(payload)
 
   clients.add(res)
   startPolling()
 
   req.on('close', () => {
     clients.delete(res)
-    if (clients.size === 0) {
-      if (pollInterval) {
-        clearInterval(pollInterval)
-        pollInterval = null
-      }
-      if (seriesPollInterval) {
-        clearInterval(seriesPollInterval)
-        seriesPollInterval = null
-      }
-    }
+    if (clients.size === 0) stopPolling()
   })
 })
 
 app.get('/api/websites/:websiteId/sessions/geo', async (req, res) => {
   const { websiteId } = req.params
-  const validIds = UMAMI_WEBSITES.map((w) => w.id)
-  if (!validIds.includes(websiteId)) {
+  if (!isConfiguredWebsite(settings, websiteId)) {
     return res.status(404).json({ error: 'Website not found' })
   }
-  const ALLOWED_WINDOWS = [5, 30, 360, 720, 1440, 10080]
-  const window = parseInt(req.query.window, 10)
-  const windowMinutes = ALLOWED_WINDOWS.includes(window) ? window : 5
+  const windowMinutes = parseWindowMinutes(typeof req.query.window === 'string' ? req.query.window : null)
   try {
-    const sessions = await fetchGeocodedSessions(websiteId, windowMinutes)
+    const sessions = await fetchGeocodedSessions(websiteId, windowMinutes, { client, geocoder, clock: systemClock })
     res.json({ websiteId, sessions })
   } catch (err) {
-    console.error('Geo sessions error:', err.message)
+    console.error('Geo sessions error:', errorMessage(err))
     res.status(500).json({ error: 'Failed to fetch sessions' })
   }
 })
@@ -444,21 +160,16 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
-// Startup
-function start() {
-  // Bind the port first so the healthcheck passes immediately. Authenticating
-  // before listening would block startup whenever Umami is slow or unreachable
-  // at boot (e.g. a private network still initializing), which can
-  // exceed the deploy healthcheck timeout and fail the deploy. Polling re-runs
-  // login on demand via ensureToken(), so eager auth here is best-effort only.
-  app.listen(PORT, () => {
-    console.log(`UmamiDash server running on port ${PORT}`)
-  })
+// Bind the port first so the health check passes at once. Logging in before
+// listening would block startup whenever Umami is slow or unreachable at boot
+// (for example a private network still starting), which can exceed a deploy's
+// health check timeout. The poller logs in on demand, so this eager login is
+// best effort only.
+app.listen(PORT, () => {
+  console.log(`UmamiDash server running on port ${PORT}`)
+})
 
-  login().catch((err) => {
-    console.error('Failed to authenticate with Umami:', err.message)
-    console.error('Server started; SSE data will be available once Umami is reachable.')
-  })
-}
-
-start()
+client.login().catch((err) => {
+  console.error('Failed to authenticate with Umami:', errorMessage(err))
+  console.error('Server started; SSE data will be available once Umami is reachable.')
+})

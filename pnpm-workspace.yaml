@@ -2,6 +2,7 @@ allowBuilds:
   sharp: true
   esbuild: false
   vue-demi: false
+  workerd: false
 
 # Supply chain security. pnpm 11 reads only auth/registry settings from .npmrc,
 # so these must live here.

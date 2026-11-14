@@ -1,0 +1,47 @@
+// UmamiDash as a Cloudflare Worker. `pnpm deploy:worker` builds the SPA and
+// deploys the top-level config. Set the settings as secrets (README, "Deploy
+// to Cloudflare Workers"). Routes and custom domains stay out of this file: add
+// them in the dashboard or through the API, so a deploy never changes them.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "umamidash",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "RealtimeHub" }]
+  },
+  // SQLite-backed, so the Durable Object also runs on the Workers Free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RealtimeHub"] }],
+  "observability": { "enabled": true },
+  // Keep variables set in the dashboard when this file is deployed.
+  "keep_vars": true,
+  // The default deploy answers on <name>.<subdomain>.workers.dev. Put
+  // Cloudflare Access in front of it (README). Version preview URLs stay off,
+  // because they would skip a route's Access application.
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "env": {
+    // For an Umami that runs as a Worker named `umami` in the same account
+    // (`wrangler deploy --env service-binding`). It reaches Umami through a
+    // service binding instead of UMAMI_API_ENDPOINT, and is served only by a
+    // route or custom domain. Environments don't inherit bindings or vars,
+    // and rename the Worker unless `name` is set, so everything is repeated
+    // here. The settings are secrets, so there are no vars to repeat.
+    "service-binding": {
+      "name": "umamidash",
+      "workers_dev": false,
+      "preview_urls": false,
+      "durable_objects": {
+        "bindings": [{ "name": "HUB", "class_name": "RealtimeHub" }]
+      },
+      "services": [{ "binding": "UMAMI", "service": "umami" }]
+    }
+  }
+}

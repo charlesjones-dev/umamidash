@@ -1,0 +1,20 @@
+{
+  // core/ (shared), server.js (Node) and the Node tests. Node runs the .ts
+  // files directly, so only erasable TypeScript syntax is allowed.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["core/**/*.ts", "server.js", "test/core/**/*.ts", "test/stub-umami.ts", "scripts/stub-umami.ts", "vitest.config.ts"]
+}

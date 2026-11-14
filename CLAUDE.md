@@ -9,43 +9,62 @@ pnpm install                  # Install dependencies
 pnpm dev                      # Start Express + Vite dev servers (requires Doppler)
 pnpm dev:server               # Start Express API server only (port 3000)
 pnpm dev:client               # Start Vite dev server only (port 5173)
+pnpm dev:worker               # Build the SPA and run the Worker with wrangler dev (port 8787)
 pnpm build                    # Build Vue SPA for production
 pnpm start                    # Start production server (serves built SPA)
+pnpm deploy:worker            # Build the SPA and deploy the Worker (top-level config)
+pnpm stub:umami               # Stand-in Umami API on port 3999, for local runs of either server
+pnpm typecheck                # vue-tsc for the app, tsc for core/, server.js and worker/
+pnpm test                     # vitest: core/ in Node, worker/ in workerd
 pnpm setup:doppler            # Configure Doppler service token interactively
 pnpm dlx shadcn-vue@latest add <name>  # Add a shadcn-vue component
 ```
 
-All `dev` scripts use `doppler run --` to inject secrets. Alternatively, copy `.env.example` to `.env` for local development without Doppler.
+`dev`, `dev:client` and `dev:server` use `doppler run --` to inject secrets. `dev:worker` reads `.dev.vars` or `.env` (wrangler). Alternatively, copy `.env.example` to `.env` for local development without Doppler.
 
 pnpm 11 (pinned via `packageManager`) reads only auth/registry settings from `.npmrc`; all pnpm settings live in `pnpm-workspace.yaml`. It enforces a 3-day `minimumReleaseAge` (newer package versions are refused, and a frozen install fails if the lockfile contains one) and `frozenLockfile`. For an urgent fix younger than 3 days, add that package to `minimumReleaseAgeExclude` instead of lowering the age.
 
 ## Architecture
 
-Realtime analytics dashboard for self-hosted Umami instances. Two-process architecture:
+Realtime analytics dashboard for self-hosted Umami instances. A Vue 3 SPA and a server that polls Umami and pushes updates to every browser. The server exists in two forms over one shared module:
 
-**Express server (`server.js`)** - Authenticates with Umami API via `UMAMI_API_ENDPOINT` (can be an internal network URL), polls active visitor counts (`/api/websites/:id/active`, 5-min window), realtime pageview data (`/api/realtime/:id`, filtered to 5-min window for countries/URLs), and 24h pageview history for each configured website, and pushes updates to all connected browsers via SSE. The `/api/config` endpoint returns `UMAMI_PUBLIC_URL` (falls back to `UMAMI_API_ENDPOINT`) so browser links point to the public Umami instance, plus `CARTO_API_KEY` (or `null`) for the session map's dark tiles. Also serves an on-demand geocoded sessions endpoint (`/api/websites/:id/sessions/geo`) that fetches sessions from Umami and geocodes them via Nominatim (structured queries, 1 req/sec rate limit, in-memory cache). Manages Umami JWT token lifecycle (auto-refresh at 23h). No build step; plain JS, runs directly with Node.
+**Shared Umami module (`core/`)** - Runtime-neutral TypeScript that both servers import. Node runs it directly (type stripping, Node 22.18 or newer), so only erasable syntax is allowed (`erasableSyntaxOnly`), and imports use `.ts` extensions. Each server injects its own transport for Umami (`UmamiTransport`), clock and storage (`KeyValueStore`, `GeocodeCache`).
+- `core/umami-client.ts` - `UmamiClient`: login (single-flight), token refresh at 23 h, GETs with one re-login on 401 and up to 3 waits on 429. Every request takes from an optional `CallBudget`.
+- `core/realtime.ts` - Active count, realtime summary (top 5 countries and URLs by unique session, last 5 minutes), 24-hour hourly series. The parsing is pure and tested.
+- `core/poller.ts` - `RealtimePoller.tick()`: a login tick on its own when the token is missing or old; otherwise realtime data for every due site (each poll interval), then due series (every 5 min), oldest first, up to `maxCallsPerTick`. Work that didn't fit stays due and the next tick comes after 1 s. Keeps per-site data in the store, so a snapshot survives hibernation. Returns the snapshot, whether it changed, and the delay to the next tick.
+- `core/geocode.ts` - Nominatim structured queries, 1 request a second across all callers (a queue), a cache that stores "not found" only when every query was answered, and an optional per-request budget.
+- `core/config.ts` - Parses and checks the environment variables both servers share, and builds the `/api/config` body.
+- `core/runtime.ts` - `Clock`, `KeyValueStore`, `CallBudget`, small helpers.
 
-**Vue 3 SPA (`src/`)** - Connects to `/api/realtime/stream` SSE endpoint. Displays a configurable grid of cards, each showing live visitor count, top countries, top URLs, and a 24h sparkline bar chart.
+**Cloudflare Worker (`worker/`, `wrangler.jsonc`)** - The recommended deploy. Static assets serve `dist/` (`run_worker_first: ["/api/*"]`, SPA fallback). `worker/index.ts` answers `/api/*` and hands the stream and the map sessions to one Durable Object, `RealtimeHub` (`worker/hub.ts`, SQLite-backed so it runs on the Workers Free plan, name `global`). The hub polls on an alarm while a browser is connected and stops when none is. **At most 25 calls to Umami per alarm** (`MAX_UMAMI_CALLS_PER_INVOCATION`; Cloudflare allows 32 service-binding calls per invocation). Browsers connect with hibernatable WebSockets (`ctx.acceptWebSocket`), so between alarms the hub is idle and not billed for duration. It also answers SSE on the same path, for browsers that still run an older build (an open SSE stream keeps the hub active). The hub stores the Umami token and the poller state in `ctx.storage.kv` and the geocoding cache in SQLite table `geocode`. Never add `setTimeout`/`setInterval` to the hub: a pending timer stops hibernation. It reaches Umami through the service binding `UMAMI` when bound (URL `https://<UMAMI_PUBLIC_URL host>/api/...`), else `fetch(UMAMI_API_ENDPOINT)`. `worker/access.ts` checks the Cloudflare Access JWT (`jose`) when `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` are set, and accepts `CF-Connecting-IP` in `HOME_IPS`; `/api/health` is always open.
+
+**Node.js server (`server.js`)** - The self-hosted alternative, unchanged for its users: same variables, endpoints and `pnpm start`. A thin Express layer over `core/` with no call cap: a `setTimeout` loop runs `poller.tick()` while at least one SSE client is connected. Logs in eagerly at startup (best effort) after binding the port. Serves `dist/` when `NODE_ENV=production`. Plain JS with JSDoc types, checked by `tsconfig.server.json`.
+
+**Vue 3 SPA (`src/`)** - Reads `/api/config`, then connects to `/api/realtime/stream` over the transport the config names (`realtimeTransport`: `sse` for Node, `websocket` for the Worker). Displays a configurable grid of cards, each showing live visitor count, top countries, top URLs, and a 24h sparkline bar chart.
 
 ### Data Flow
 
 ```
 Browser ←SSE→ Express (:3000) →polls→ Umami API
+Browser ←WebSocket (or SSE)→ Worker → RealtimeHub (alarm) →polls→ Umami API (service binding or fetch)
 ```
 
-In development, Vite (:5173) proxies `/api/*` to Express (:3000) via `vite.config.ts`. In production (`NODE_ENV=production`), Express serves the built SPA from `dist/`.
+In development, Vite (:5173) proxies `/api/*` (WebSockets too) to Express (:3000) via `vite.config.ts`. In production (`NODE_ENV=production`), Express serves the built SPA from `dist/`. `wrangler dev` serves the built SPA and the Worker together on :8787.
 
 ### Key Server Endpoints
 
-- `GET /api/config` - Returns website list, grid dimensions, poll interval, Umami URL, CARTO API key
-- `GET /api/realtime/stream` - SSE stream; broadcasts poll results to all connected clients
-- `GET /api/websites/:websiteId/sessions/geo?window=N` - On-demand geocoded sessions for the map modal. Window values: 5, 30, 360, 720, 1440, 10080 (minutes). Uses Nominatim structured queries with in-memory geocode cache (persists for server lifetime). Rate-limited to 1 req/sec per Nominatim policy.
-- `GET /api/health` - Health check
+Both servers answer the same endpoints with the same shapes (types in `src/types/index.ts`, stream constants in `src/lib/realtime-protocol.ts`).
+
+- `GET /api/config` - Returns website list, grid dimensions, poll interval, Umami URL, CARTO API key, and `realtimeTransport`
+- `GET /api/realtime/stream` - SSE stream (both servers), or a WebSocket upgrade (Worker). Messages are a JSON array of `RealtimeData`, or the text `heartbeat` (SSE: a `: heartbeat` comment) when a poll found nothing new
+- `GET /api/websites/:websiteId/sessions/geo?window=N` - On-demand geocoded sessions for the map modal. Window values: 5, 30, 360, 720, 1440, 10080 (minutes). The Worker caps one request at 20 Nominatim requests; places left over are looked up on the next request.
+- `GET /api/health` - Health check. The Worker answers 503 when its settings are invalid; Node exits at startup instead.
 
 ### Client Structure
 
 - `src/main.ts` - App bootstrap; mounts Vue app directly (no router)
-- `src/composables/useRealtimeStream.ts` - EventSource composable; parses SSE data into reactive Maps keyed by website ID. Exports a module-level `connectionStatus` ref (`'connected' | 'reconnecting' | 'disconnected'`) used by the header status dot
+- `src/composables/useRealtimeStream.ts` - Takes the config ref and connects once it loads, with EventSource (SSE) or WebSocket (reconnects with backoff up to 30 s, and treats three silent poll intervals as a dead socket). Parses messages into reactive Maps keyed by website ID. Exports a module-level `connectionStatus` ref (`'connected' | 'reconnecting' | 'disconnected'`) used by the header status dot
+- `src/lib/realtime-protocol.ts` - Stream path and heartbeat text, shared by the SPA and both servers
 - `src/composables/useTheme.ts` - Unified dark mode + theme color composable; applies CSS custom properties as inline styles on `documentElement`, persists to localStorage (`umamidash-dark-mode`, `umamidash-theme`)
 - `src/lib/themes.ts` - Theme definitions array; 4 base gray themes (Neutral, Zinc, Slate, Stone) override all CSS vars, 7 accent themes (Red, Rose, Orange, Green, Blue, Violet, Yellow) override primary/chart/sidebar-primary vars only
 - `src/components/ActiveVisitorCard.vue` - Per-website card with visitor count, countries, URLs, sparkline. Countries list is clickable (opens session map modal at 5-min window); when no visitors, a globe icon opens it at 30-min window. Mobile-responsive: smaller title/count, URL list limited to top 2 with max-width constraint.
@@ -65,9 +84,15 @@ Theme switching works by setting CSS custom properties as inline styles on `<htm
 
 ## Deployment
 
-Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. Health check: `/api/health`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+**Cloudflare Worker (recommended):** `pnpm deploy:worker` (build, then `wrangler deploy --env=""`). Settings are Worker secrets (`wrangler secret bulk`), never vars in `wrangler.jsonc`: a var and a secret with the same name conflict, and `keep_vars: true` keeps dashboard-set variables. Routes and custom domains stay out of `wrangler.jsonc`. Environments don't inherit bindings or vars and rename the Worker unless `name` is set, so the `service-binding` environment (for an Umami Worker named `umami`, `wrangler deploy --env service-binding`) repeats its `name`, `durable_objects` and adds the `UMAMI` service binding, with `workers_dev: false`. Keep the repo host-neutral: it is public, so no deploy-specific names, hostnames or IDs. A change to the Durable Object class needs a new entry in `migrations`.
 
-The Node.js version is pinned to an exact release in `.nvmrc`, the only Node version source. Build tools such as Railpack and mise read it, and they also read `.node-version`, `mise.toml` and `.tool-versions`, so don't add any of those for Node: one could win over `.nvmrc`. Bump the pin for each Node.js security release.
+**Node server:** Build: `pnpm install --frozen-lockfile && pnpm build`. Start: `node server.js`. Health check: `/api/health`. No built-in auth; access control is handled externally (e.g., Cloudflare Zero Trust).
+
+The Node.js version is pinned to an exact release in `.nvmrc`, the only Node version source. Build tools such as Workers Builds, Railpack and mise read it, and they also read `.node-version`, `mise.toml` and `.tool-versions`, so don't add any of those for Node: one could win over `.nvmrc`. Bump the pin for each Node.js security release. Workers Builds installs Node through node-build, so before bumping, check that `https://raw.githubusercontent.com/nodenv/node-build/master/share/node-build/<version>` answers 200, or every build fails. `package.json` `engines` says Node 22.18 or newer, the first release that runs `core/*.ts` without a flag.
+
+## Testing
+
+`pnpm test` runs two vitest projects (`vitest.config.ts`): `core` in Node (with `TZ=UTC`), and `worker` in workerd through `@cloudflare/vitest-plugin` with the real `wrangler.jsonc`. In the worker project the `UMAMI` service binding is the stub in `test/stub-umami.ts`, which records every call. The hub's alarms run in real time there; the test reads each alarm's call count from its `tick calls=N` log line. The worker project serves `dist/`, so run `pnpm build` first. For a manual run of either server, start `pnpm stub:umami` and point the server at it.
 
 ## Development Principles
 

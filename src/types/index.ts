@@ -4,6 +4,14 @@ export interface Website {
   domain?: string
 }
 
+/**
+ * How the browser receives realtime data. The Node server streams SSE. The
+ * Cloudflare Worker prefers WebSockets, because its Durable Object can
+ * hibernate between polls while hibernatable WebSockets stay open. It also
+ * answers SSE on the same path.
+ */
+export type RealtimeTransport = 'sse' | 'websocket'
+
 export interface DashboardConfig {
   websites: Website[]
   columns: number
@@ -11,6 +19,16 @@ export interface DashboardConfig {
   pollInterval: number
   umamiUrl: string
   cartoApiKey: string | null
+  realtimeTransport: RealtimeTransport
+}
+
+export interface ApiError {
+  error: string
+}
+
+export interface GeoSessionsResponse {
+  websiteId: string
+  sessions: GeocodedSession[]
 }
 
 export interface CountryData {

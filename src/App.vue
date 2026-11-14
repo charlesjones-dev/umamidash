@@ -8,7 +8,7 @@ import DarkModeToggle from '@/components/DarkModeToggle.vue'
 
 const config = ref<DashboardConfig | null>(null)
 const error = ref<string | null>(null)
-const { visitors, countries, urls, series } = useRealtimeStream()
+const { visitors, countries, urls, series } = useRealtimeStream(config)
 
 const lastCardSpan = computed(() => {
   if (!config.value) return 1

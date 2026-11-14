@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest'
+import { dashboardConfig, parseSettings } from '../../core/config.ts'
+
+const base = {
+  UMAMI_API_ENDPOINT: 'http://umami:3000/',
+  UMAMI_USERNAME: 'user',
+  UMAMI_PASSWORD: 'pass',
+  UMAMI_WEBSITES: '[{"id":"a","name":"A","domain":"a.example"}]',
+}
+
+describe('parseSettings', () => {
+  it('applies the same defaults as server.js always had', () => {
+    const result = parseSettings(base)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.settings).toMatchObject({
+      columns: 3,
+      rows: 2,
+      pollIntervalMs: 5000,
+      umamiApiEndpoint: 'http://umami:3000',
+      umamiPublicUrl: 'http://umami:3000',
+      cartoApiKey: null,
+    })
+    expect(dashboardConfig(result.settings, 'sse')).toEqual({
+      websites: [{ id: 'a', name: 'A', domain: 'a.example' }],
+      columns: 3,
+      rows: 2,
+      pollInterval: 5000,
+      umamiUrl: 'http://umami:3000',
+      cartoApiKey: null,
+      realtimeTransport: 'sse',
+    })
+  })
+
+  it('names every missing variable', () => {
+    const result = parseSettings({})
+    expect(result).toEqual({
+      ok: false,
+      errors: ['Missing required environment variables: UMAMI_API_ENDPOINT, UMAMI_USERNAME, UMAMI_PASSWORD'],
+    })
+  })
+
+  it('rejects invalid websites JSON and a poll interval under 1 second', () => {
+    const result = parseSettings({ ...base, UMAMI_WEBSITES: '{nope', POLL_INTERVAL_MS: '200' })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors).toHaveLength(2)
+  })
+
+  it('lets a Worker with a service binding go without UMAMI_API_ENDPOINT', () => {
+    const { UMAMI_API_ENDPOINT: _, ...rest } = base
+    expect(parseSettings(rest, { endpointOptional: true }).ok).toBe(false)
+    const result = parseSettings({ ...rest, UMAMI_PUBLIC_URL: 'https://analytics.example' }, { endpointOptional: true })
+    expect(result.ok && result.settings.umamiApiEndpoint).toBeNull()
+  })
+
+  it('ignores bindings and other non-string values in a Worker env', () => {
+    const result = parseSettings({ ...base, HUB: {}, POLL_INTERVAL_MS: '15000' })
+    expect(result.ok && result.settings.pollIntervalMs).toBe(15000)
+  })
+})

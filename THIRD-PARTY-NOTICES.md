@@ -79,6 +79,7 @@ to users) are listed.
 | iconv-lite | 0.4.24 | MIT |
 | inherits | 2.0.4 | ISC |
 | ipaddr.js | 1.9.1 | MIT |
+| jose | 6.2.17 | MIT |
 | leaflet | 1.9.4 | BSD-2-Clause |
 | lucide-vue-next | 0.474.0 | ISC |
 | magic-string | 0.30.21 | MIT |
@@ -662,6 +663,11 @@ The following packages are licensed under the MIT License.
 
 - **Copyright**: Copyright (C) 2011-2017 whitequark
 - **Repository**: https://github.com/whitequark/ipaddr.js
+
+### jose (v6.2.17)
+
+- **Copyright**: Copyright (c) 2018 Filip Skokan
+- **Repository**: https://github.com/panva/jose
 
 ### magic-string (v0.30.21)
 

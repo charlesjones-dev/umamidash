@@ -22,7 +22,10 @@ const { themeName, themes, setTheme } = useTheme()
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="w-40">
-      <DropdownMenuRadioGroup :model-value="themeName" @update:model-value="setTheme">
+      <DropdownMenuRadioGroup
+        :model-value="themeName"
+        @update:model-value="(value) => { if (typeof value === 'string') setTheme(value) }"
+      >
         <DropdownMenuRadioItem
           v-for="theme in themes"
           :key="theme.name"

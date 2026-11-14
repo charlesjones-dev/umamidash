@@ -186,10 +186,15 @@ export class RealtimePoller {
     const { client, timeZone } = this.#options
     const id = job.site.id
     if (job.kind === 'realtime') {
-      const [visitors, summary] = await Promise.all([
+      // allSettled, so the tick never ends with one of the two calls still in flight.
+      const [active, realtime] = await Promise.allSettled([
         fetchActiveVisitors(client, id, budget),
         fetchRealtimeSummary(client, id, now, budget),
       ])
+      if (active.status === 'rejected') throw active.reason
+      if (realtime.status === 'rejected') throw realtime.reason
+      const visitors = active.value
+      const summary = realtime.value
       const site = siteState(state, id)
       site.visitors = visitors
       site.countries = summary.countries

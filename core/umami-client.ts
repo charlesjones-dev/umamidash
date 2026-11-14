@@ -18,12 +18,20 @@ const MAX_RETRY_WAIT_MS = 30_000
  * not that the token expired, so the client doesn't log in again for it.
  */
 const FRESH_TOKEN_MS = 60_000
+/** How long a path that got 401 on a fresh token triggers no other login. */
+const DENIED_FOR_MS = 30 * 60_000
 
 interface StoredToken {
   token: string
   issuedAt: number
   /** The user the token belongs to, so new credentials log in again. */
   username?: string
+  /**
+   * Paths (without the query) that answered 401 on a fresh token, with the
+   * time: the user can't see that website. For DENIED_FOR_MS they trigger no
+   * other login, so a wrong guess costs at most that long.
+   */
+  denied?: Record<string, number>
 }
 
 export class UmamiError extends Error {
@@ -134,17 +142,22 @@ export class UmamiClient {
         const body: unknown = await res.json()
         return { status: res.status, retryAfter: null, data: body }
       })
+      if (status === 401 && reloggedIn) this.#markDenied(path, token)
       if (status === 401 && !reloggedIn) {
         const current = this.#store.get<StoredToken>(TOKEN_KEY)
         // A parallel call logged in again already: retry with the new token.
         const replaced = current?.token !== token
         const fresh = used !== undefined && this.#clock.now() - used.issuedAt < FRESH_TOKEN_MS
-        if (replaced || !fresh) {
+        const deniedAt = used?.denied?.[pathOnly(path)]
+        const denied = deniedAt !== undefined && this.#clock.now() - deniedAt < DENIED_FOR_MS
+        if (replaced || (!fresh && !denied)) {
           reloggedIn = true
           if (!replaced) this.#store.delete(TOKEN_KEY)
           if (this.needsLogin()) await this.login(budget)
           continue
         }
+        // A fresh token that gets 401 shows the user can't see this website.
+        if (fresh) this.#markDenied(path, token)
       }
       if (status === 429 && attempt < this.#rateLimitRetries) {
         const seconds = Number.parseInt(retryAfter ?? '', 10)
@@ -157,6 +170,21 @@ export class UmamiClient {
       return data
     }
   }
+
+  /** Records that `path` is refused for the token in use, if it is still the stored one. */
+  #markDenied(path: string, token: string): void {
+    const stored = this.#store.get<StoredToken>(TOKEN_KEY)
+    if (!stored || stored.token !== token) return
+    const key = pathOnly(path)
+    const deniedAt = stored.denied?.[key]
+    if (deniedAt !== undefined && this.#clock.now() - deniedAt < DENIED_FOR_MS) return
+    this.#store.put<StoredToken>(TOKEN_KEY, { ...stored, denied: { ...stored.denied, [key]: this.#clock.now() } })
+  }
+}
+
+function pathOnly(path: string): string {
+  const q = path.indexOf('?')
+  return q === -1 ? path : path.slice(0, q)
 }
 
 /** Cancels an unread body, so the runtime can reuse the connection. */

@@ -185,6 +185,23 @@ describe('RealtimePoller with a cap of 25 calls per tick', () => {
     expect(result.calls).toBeLessThanOrEqual(CAP)
   })
 
+  it('logs in again at most once per path for a website the user cannot view', async () => {
+    const h = harness()
+    const p = poller(h, 11)
+    const [denied] = stubWebsites(1)
+    h.stub.deny(denied.id)
+    await tick(h, p)
+    let logins = 0
+    for (let elapsed = 0; elapsed < 60 * 60_000; elapsed += POLL_MS) {
+      h.clock.advance(POLL_MS)
+      const result = await tick(h, p)
+      expect(result.calls).toBeLessThanOrEqual(CAP)
+      logins += h.stub.calls.filter((c) => c === '/api/auth/login').length
+    }
+    // A denial lasts 30 minutes, so about 2 logins an hour, not one a minute.
+    expect(logins).toBeLessThanOrEqual(6)
+  })
+
   it('waits and retries on a 429, inside the cap', async () => {
     const h = harness()
     const p = poller(h, 1)

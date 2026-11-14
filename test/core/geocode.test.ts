@@ -80,6 +80,21 @@ describe('Geocoder', () => {
     expect(cache.get('US:US-GA:Atlanta')).toBeUndefined()
   })
 
+  it('pauses after three failures in a row, so an outage costs seconds, not minutes', async () => {
+    const clock = fakeClock()
+    const nominatim = fakeNominatim(clock, () => new Response('down', { status: 503 }))
+    const geocoder = new Geocoder({ cache: memoryGeocodeCache(), clock, fetch: nominatim.fetch })
+    const budget = new CallBudget(20)
+    // Atlanta: 2 failed queries. Boston: the 3rd failure pauses. Chicago: no request.
+    expect(await geocoder.lookup({ country: 'US', region: '', city: 'Atlanta' }, budget)).toBeNull()
+    expect(await geocoder.lookup({ country: 'US', region: '', city: 'Boston' }, budget)).toBeUndefined()
+    expect(await geocoder.lookup({ country: 'US', region: '', city: 'Chicago' }, budget)).toBeUndefined()
+    expect(nominatim.requests).toHaveLength(3)
+    clock.advance(60_000)
+    await geocoder.lookup({ country: 'US', region: '', city: 'Denver' }, budget)
+    expect(nominatim.requests.length).toBeGreaterThan(2)
+  })
+
   it('stops at the budget and caches nothing for the place it cut short', async () => {
     const clock = fakeClock()
     const nominatim = fakeNominatim(clock, () => Response.json([]))

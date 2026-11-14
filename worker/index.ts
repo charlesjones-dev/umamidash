@@ -14,12 +14,12 @@ export { RealtimeHub } from './hub.ts'
 
 const GEO_PATH = /^\/api\/websites\/([^/]+)\/sessions\/geo$/
 
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
+function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', ...headers } })
 }
 
-function apiError(error: string, status: number): Response {
-  return json({ error } satisfies ApiError, status)
+function apiError(error: string, status: number, headers: Record<string, string> = {}): Response {
+  return json({ error } satisfies ApiError, status, headers)
 }
 
 function isWebSocket(request: Request): boolean {
@@ -41,7 +41,7 @@ const settingsCache = new WeakMap<Env, SettingsResult>()
 function settingsOf(env: Env): SettingsResult {
   let result = settingsCache.get(env)
   if (!result) {
-    result = parseSettings(env, { endpointOptional: Boolean(env.UMAMI) })
+    result = parseSettings(env, { serviceBinding: Boolean(env.UMAMI) })
     if (!result.ok) console.error('Invalid configuration:', result.errors.join('; '))
     else for (const warning of result.warnings) console.warn(warning)
     settingsCache.set(env, result)
@@ -82,7 +82,7 @@ export default {
 
     if (url.pathname === REALTIME_STREAM_PATH) {
       // A HEAD would open an SSE stream that nobody reads.
-      if (request.method !== 'GET') return apiError('Method not allowed', 405)
+      if (request.method !== 'GET') return apiError('Method not allowed', 405, { Allow: 'GET' })
       // Browsers don't apply the same-origin policy to WebSockets, so any
       // page could otherwise read the stream with the viewer's access.
       const origin = request.headers.get('Origin')

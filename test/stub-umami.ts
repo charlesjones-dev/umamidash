@@ -17,6 +17,8 @@ export interface StubUmami {
   failNext(status: number, times: number): void
   /** Makes the current token invalid, as a restart of Umami would. */
   revokeToken(): void
+  /** Answers 401 for this website with any token, as for a website the user can't view. */
+  deny(websiteId: string): void
 }
 
 export function createStubUmami(options: StubOptions = {}): StubUmami {
@@ -26,6 +28,7 @@ export function createStubUmami(options: StubOptions = {}): StubUmami {
   let tokenSerial = 0
   let validToken = ''
   let failures: { status: number; times: number } | null = null
+  const denied = new Set<string>()
 
   async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -44,6 +47,9 @@ export function createStubUmami(options: StubOptions = {}): StubUmami {
     }
 
     if (request.headers.get('Authorization') !== `Bearer ${validToken}` || !validToken) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if ([...denied].some((id) => url.pathname.includes(id))) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
     if (failures && failures.times > 0) {
@@ -96,6 +102,9 @@ export function createStubUmami(options: StubOptions = {}): StubUmami {
     },
     revokeToken: () => {
       validToken = ''
+    },
+    deny: (websiteId) => {
+      denied.add(websiteId)
     },
   }
 }

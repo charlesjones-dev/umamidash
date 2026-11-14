@@ -10,6 +10,10 @@ const NOMINATIM_USER_AGENT = 'UmamiDash/1.0'
 /** Nominatim's usage policy allows at most 1 request a second. */
 const NOMINATIM_INTERVAL_MS = 1000
 const NOMINATIM_TIMEOUT_MS = 10_000
+/** After this many failed requests in a row, the geocoder pauses. */
+const FAILURES_BEFORE_PAUSE = 3
+/** How long the geocoder sends nothing after failures, so an outage can't hold every map request. */
+const PAUSE_AFTER_FAILURES_MS = 60_000
 
 export interface Coordinates {
   lat: number
@@ -61,6 +65,8 @@ export class Geocoder {
   #fetch: typeof fetch
   #queue: Promise<unknown> = Promise.resolve()
   #lastRequestAt = Number.NEGATIVE_INFINITY
+  #failuresInARow = 0
+  #pausedUntil = 0
 
   constructor(options: GeocoderOptions) {
     this.#cache = options.cache
@@ -95,7 +101,7 @@ export class Geocoder {
 
     let failed = false
     for (const query of queries) {
-      if (budget.remaining <= 0) return undefined
+      if (budget.remaining <= 0 || this.#clock.now() < this.#pausedUntil) return undefined
       budget.take()
       await this.#waitForSlot()
       try {
@@ -111,6 +117,7 @@ export class Geocoder {
           }
           return res.json()
         })
+        this.#failuresInARow = 0
         const first = Array.isArray(results) ? results[0] : undefined
         if (isRecord(first)) {
           const coords = { lat: Number(first.lat), lng: Number(first.lon) }
@@ -124,6 +131,12 @@ export class Geocoder {
       } catch (err) {
         failed = true
         console.warn('Nominatim request failed:', errorMessage(err))
+        if (++this.#failuresInARow >= FAILURES_BEFORE_PAUSE) {
+          this.#failuresInARow = 0
+          this.#pausedUntil = this.#clock.now() + PAUSE_AFTER_FAILURES_MS
+          console.warn(`Geocoding paused for ${PAUSE_AFTER_FAILURES_MS / 1000} s after repeated failures`)
+          return undefined
+        }
       }
     }
 

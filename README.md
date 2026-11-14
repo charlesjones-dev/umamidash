@@ -125,7 +125,7 @@ If Umami runs as a Worker in the same Cloudflare account, use a [service binding
 - It logs in on an alarm of its own, then fetches the active count and realtime data of every site each poll interval, and the 24-hour series every 5 minutes. One alarm makes at most 25 calls to Umami, because a Worker may make 32 calls to a service binding per invocation. Work that doesn't fit runs on the next alarm, 1 second later. With 11 websites, the first poll makes 25 calls and the next one 8, then each poll makes 22.
 - It keeps the Umami token, the latest data and the geocoding cache in its SQLite storage, so they survive hibernation. One map request makes at most 20 Nominatim requests; the places left over are looked up on the next request.
 - A failed call doesn't make the hub retry sooner: that site is tried again on the next poll. Each call to Umami or Nominatim gives up after 10 seconds.
-- Each poll writes two rows to storage: the data and the next alarm. At the default 5-second interval that is about 35,000 rows a day, inside the Free plan's 100,000. On the Free plan, keep `POLL_INTERVAL_MS` at 2000 or more.
+- Each poll writes two rows to storage: the data and the next alarm. At the default 5-second interval that is about 35,000 rows a day, inside the Free plan's 100,000. On the Free plan, keep `POLL_INTERVAL_MS` at 2000 or more. With more than 12 websites, each poll needs a second alarm 1 second later, which doubles the rows, so use 5000 or more.
 
 ## Run on Node.js
 
@@ -148,7 +148,7 @@ pnpm dev
 
 Open `http://localhost:5173` in your browser.
 
-**Upgrading from an earlier version:** `server.js` now imports `core/` and `src/lib/`, and needs Node.js 22.18 or newer to run their TypeScript directly. Copy the whole repository to the host (an image that holds only `server.js` and `dist/` no longer starts). A `POLL_INTERVAL_MS` under 1000 now counts as 1000.
+**Upgrading from an earlier version:** `server.js` now imports `core/` and `src/lib/`, and needs Node.js 22.18 or newer to run their TypeScript directly. Copy the whole repository to the host (an image that holds only `server.js` and `dist/` no longer starts). A `POLL_INTERVAL_MS` under 1000 now counts as 1000. Each call to Umami now gives up after 10 seconds, so a very slow Umami shows errors in the log instead of late data.
 
 To deploy it:
 

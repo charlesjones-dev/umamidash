@@ -25,11 +25,12 @@ export type SettingsResult =
 /**
  * Reads and checks the environment variables both servers share. It accepts
  * what server.js always accepted (numbers read with parseInt, any public
- * URL), and refuses only values that can never work. With
- * `endpointOptional`, `UMAMI_API_ENDPOINT` may be missing (a Worker with a
- * service binding), but then `UMAMI_PUBLIC_URL` is required.
+ * URL), and refuses only values that can never work. With `serviceBinding`
+ * (a Worker with the UMAMI binding), `UMAMI_API_ENDPOINT` may be missing, but
+ * `UMAMI_PUBLIC_URL` must then be an http(s) URL, because the calls through
+ * the binding use its host.
  */
-export function parseSettings(env: object, options: { endpointOptional?: boolean } = {}): SettingsResult {
+export function parseSettings(env: object, options: { serviceBinding?: boolean } = {}): SettingsResult {
   // Only string values count, so a Worker can pass its `env` with its bindings.
   const values = env as Readonly<Record<string, unknown>>
   const raw = (name: string): string | undefined => {
@@ -46,20 +47,28 @@ export function parseSettings(env: object, options: { endpointOptional?: boolean
   const username = raw('UMAMI_USERNAME')
   const password = raw('UMAMI_PASSWORD')
   const missing = [
-    !endpoint && !options.endpointOptional ? 'UMAMI_API_ENDPOINT' : null,
-    !publicUrl && options.endpointOptional ? 'UMAMI_PUBLIC_URL (or UMAMI_API_ENDPOINT)' : null,
+    !endpoint && !options.serviceBinding ? 'UMAMI_API_ENDPOINT' : null,
+    !publicUrl && options.serviceBinding ? 'UMAMI_PUBLIC_URL (or UMAMI_API_ENDPOINT)' : null,
     !username ? 'UMAMI_USERNAME' : null,
     !password ? 'UMAMI_PASSWORD' : null,
   ].filter((name) => name !== null)
   if (missing.length > 0) errors.push(`Missing required environment variables: ${missing.join(', ')}`)
   if (endpoint && !isHttpUrl(endpoint)) errors.push('UMAMI_API_ENDPOINT must be an http:// or https:// URL')
+  if (options.serviceBinding && publicUrl && !isHttpUrl(publicUrl)) {
+    errors.push('UMAMI_PUBLIC_URL must be an http:// or https:// URL when the UMAMI service binding is used')
+  }
 
   const websites = parseWebsites(read('UMAMI_WEBSITES') ?? '[]', errors)
 
   const columns = parseInteger(read('GRID_COLUMNS'), 3, 'GRID_COLUMNS', errors)
   const rows = parseInteger(read('GRID_ROWS'), 2, 'GRID_ROWS', errors)
-  let pollIntervalMs = parseInteger(read('POLL_INTERVAL_MS'), DEFAULT_POLL_INTERVAL_MS, 'POLL_INTERVAL_MS', errors)
-  if (pollIntervalMs < MIN_POLL_INTERVAL_MS) {
+  // Any number parseInt reads, even 0 or below, becomes at least 1000 with a warning.
+  const pollText = read('POLL_INTERVAL_MS')
+  let pollIntervalMs = pollText === undefined ? DEFAULT_POLL_INTERVAL_MS : Number.parseInt(pollText, 10)
+  if (Number.isNaN(pollIntervalMs)) {
+    errors.push('POLL_INTERVAL_MS must be a whole number of milliseconds')
+    pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
+  } else if (pollIntervalMs < MIN_POLL_INTERVAL_MS) {
     warnings.push(`POLL_INTERVAL_MS=${pollIntervalMs} is below ${MIN_POLL_INTERVAL_MS}; using ${MIN_POLL_INTERVAL_MS}`)
     pollIntervalMs = MIN_POLL_INTERVAL_MS
   }

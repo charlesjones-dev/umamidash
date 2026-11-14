@@ -72,9 +72,24 @@ describe('parseSettings', () => {
 
   it('lets a Worker with a service binding go without UMAMI_API_ENDPOINT', () => {
     const { UMAMI_API_ENDPOINT: _, ...rest } = base
-    expect(parseSettings(rest, { endpointOptional: true }).ok).toBe(false)
-    const result = parseSettings({ ...rest, UMAMI_PUBLIC_URL: 'https://analytics.example' }, { endpointOptional: true })
+    expect(parseSettings(rest, { serviceBinding: true }).ok).toBe(false)
+    const result = parseSettings({ ...rest, UMAMI_PUBLIC_URL: 'https://analytics.example' }, { serviceBinding: true })
     expect(result.ok && result.settings.umamiApiEndpoint).toBeNull()
+  })
+
+  it('requires an http(s) UMAMI_PUBLIC_URL with the service binding only', () => {
+    const { UMAMI_API_ENDPOINT: _, ...rest } = base
+    const binding = parseSettings({ ...rest, UMAMI_PUBLIC_URL: 'analytics.example' }, { serviceBinding: true })
+    expect(binding.ok === false && binding.errors[0]).toMatch(/UMAMI_PUBLIC_URL must be/)
+    expect(parseSettings({ ...base, UMAMI_PUBLIC_URL: 'analytics.example' }).ok).toBe(true)
+  })
+
+  it('raises any poll interval under 1000 to 1000, and refuses text', () => {
+    for (const value of ['0', '-5', '1e3']) {
+      const result = parseSettings({ ...base, POLL_INTERVAL_MS: value })
+      expect(result.ok && result.settings.pollIntervalMs).toBe(1000)
+    }
+    expect(parseSettings({ ...base, POLL_INTERVAL_MS: 'fast' }).ok).toBe(false)
   })
 
   it('ignores bindings and other non-string values in a Worker env', () => {

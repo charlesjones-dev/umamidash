@@ -149,7 +149,7 @@ export class RealtimeHub extends DurableObject<Env> {
 
   #getRuntime(): Runtime {
     if (this.#runtime) return this.#runtime
-    const parsed = parseSettings(this.env, { endpointOptional: Boolean(this.env.UMAMI) })
+    const parsed = parseSettings(this.env, { serviceBinding: Boolean(this.env.UMAMI) })
     if (!parsed.ok) throw new Error(`Invalid configuration: ${parsed.errors.join('; ')}`)
     const settings = parsed.settings
     const store: KeyValueStore = this.ctx.storage.kv

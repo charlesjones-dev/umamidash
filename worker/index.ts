@@ -22,6 +22,10 @@ function apiError(error: string, status: number): Response {
   return json({ error } satisfies ApiError, status)
 }
 
+function isWebSocket(request: Request): boolean {
+  return request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
+}
+
 function safeDecode(segment: string): string | null {
   try {
     return decodeURIComponent(segment)
@@ -39,6 +43,7 @@ function settingsOf(env: Env): SettingsResult {
   if (!result) {
     result = parseSettings(env, { endpointOptional: Boolean(env.UMAMI) })
     if (!result.ok) console.error('Invalid configuration:', result.errors.join('; '))
+    else for (const warning of result.warnings) console.warn(warning)
     settingsCache.set(env, result)
   }
   return result
@@ -51,13 +56,15 @@ export default {
     if (request.method !== 'GET' && request.method !== 'HEAD') return apiError('Not found', 404)
 
     const parsed = settingsOf(env)
+    const access = accessMode(env)
 
     // Open to monitors: no Access check, and nothing private in the answer.
     if (url.pathname === '/api/health') {
-      return parsed.ok ? json({ status: 'OK' }) : json({ status: 'ERROR', error: 'Invalid configuration' }, 503)
+      return parsed.ok && access.kind !== 'misconfigured'
+        ? json({ status: 'OK' })
+        : json({ status: 'ERROR', error: 'Invalid configuration' }, 503)
     }
 
-    const access = accessMode(env)
     if (access.kind === 'misconfigured') {
       console.error('Access check:', access.error)
       return apiError('Access check is misconfigured', 503)
@@ -73,7 +80,17 @@ export default {
 
     const hub = env.HUB.getByName(HUB_NAME)
 
-    if (url.pathname === REALTIME_STREAM_PATH) return hub.fetch(request)
+    if (url.pathname === REALTIME_STREAM_PATH) {
+      // A HEAD would open an SSE stream that nobody reads.
+      if (request.method !== 'GET') return apiError('Method not allowed', 405)
+      // Browsers don't apply the same-origin policy to WebSockets, so any
+      // page could otherwise read the stream with the viewer's access.
+      const origin = request.headers.get('Origin')
+      if (isWebSocket(request) && origin !== null && origin !== url.origin) {
+        return apiError('Forbidden', 403)
+      }
+      return hub.fetch(request)
+    }
 
     const geo = GEO_PATH.exec(url.pathname)
     if (geo) {

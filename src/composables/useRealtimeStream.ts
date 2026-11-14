@@ -64,31 +64,39 @@ export function useRealtimeStream(config: Ref<DashboardConfig | null>) {
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     let silenceTimer: ReturnType<typeof setTimeout> | undefined
 
-    function armSilenceTimer() {
+    function armSilenceTimer(ws: WebSocket) {
       clearTimeout(silenceTimer)
-      silenceTimer = setTimeout(() => socket?.close(), silenceLimitMs)
+      // Don't wait for the close handshake on a dead path: reconnect at once.
+      silenceTimer = setTimeout(() => lost(ws), silenceLimitMs)
+    }
+
+    function lost(ws: WebSocket) {
+      if (stopped || ws !== socket) return
+      socket = null
+      ws.onclose = null
+      ws.close()
+      clearTimeout(silenceTimer)
+      failures++
+      connectionStatus.value = failures >= ATTEMPTS_BEFORE_DISCONNECTED ? 'disconnected' : 'reconnecting'
+      const delay = Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** (failures - 1))
+      retryTimer = setTimeout(open, delay)
     }
 
     function open() {
       const ws = new WebSocket(url)
       socket = ws
       ws.onopen = () => {
-        failures = 0
         connectionStatus.value = 'connected'
-        armSilenceTimer()
+        armSilenceTimer(ws)
       }
       ws.onmessage = (event) => {
-        armSilenceTimer()
+        // Reset the backoff only once data flows, so a socket that opens and
+        // closes at once doesn't retry every second.
+        failures = 0
+        armSilenceTimer(ws)
         if (typeof event.data === 'string' && event.data !== REALTIME_HEARTBEAT) apply(event.data)
       }
-      ws.onclose = () => {
-        clearTimeout(silenceTimer)
-        if (stopped) return
-        failures++
-        connectionStatus.value = failures >= ATTEMPTS_BEFORE_DISCONNECTED ? 'disconnected' : 'reconnecting'
-        const delay = Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** (failures - 1))
-        retryTimer = setTimeout(open, delay)
-      }
+      ws.onclose = () => lost(ws)
     }
 
     open()

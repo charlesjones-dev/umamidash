@@ -1,5 +1,5 @@
 import type { GeocodedSession } from '../src/types/index.ts'
-import { CallBudget, errorMessage, isRecord, UNLIMITED, type Clock } from './runtime.ts'
+import { CallBudget, errorMessage, isRecord, UNLIMITED, withTimeout, type Clock } from './runtime.ts'
 import type { UmamiClient } from './umami-client.ts'
 
 export const GEO_WINDOWS_MINUTES = [5, 30, 360, 720, 1440, 10080] as const
@@ -9,6 +9,7 @@ const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 const NOMINATIM_USER_AGENT = 'UmamiDash/1.0'
 /** Nominatim's usage policy allows at most 1 request a second. */
 const NOMINATIM_INTERVAL_MS = 1000
+const NOMINATIM_TIMEOUT_MS = 10_000
 
 export interface Coordinates {
   lat: number
@@ -99,20 +100,24 @@ export class Geocoder {
       await this.#waitForSlot()
       try {
         const qs = new URLSearchParams({ format: 'json', limit: '1', ...query })
-        const res = await this.#fetch(`${NOMINATIM_URL}?${qs}`, {
-          headers: { 'User-Agent': NOMINATIM_USER_AGENT },
+        const results = await withTimeout(NOMINATIM_TIMEOUT_MS, async (signal): Promise<unknown> => {
+          const res = await this.#fetch(`${NOMINATIM_URL}?${qs}`, {
+            headers: { 'User-Agent': NOMINATIM_USER_AGENT },
+            signal,
+          })
+          if (!res.ok) {
+            await res.body?.cancel()
+            throw new Error(`Nominatim answered ${res.status}`)
+          }
+          return res.json()
         })
-        if (!res.ok) {
-          failed = true
-          await res.body?.cancel()
-          continue
-        }
-        const results: unknown = await res.json()
         const first = Array.isArray(results) ? results[0] : undefined
         if (isRecord(first)) {
           const coords = { lat: Number(first.lat), lng: Number(first.lon) }
           if (Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
-            this.#cache.set(key, coords)
+            // After a failed, more specific query this is only a fallback
+            // (the country for a city), so it isn't cached for the place.
+            if (!failed) this.#cache.set(key, coords)
             return coords
           }
         }

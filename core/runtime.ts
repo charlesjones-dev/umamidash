@@ -75,3 +75,19 @@ export function errorMessage(err: unknown): string {
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+/**
+ * Runs `run` with a signal that aborts after `ms`, and clears the timer as
+ * soon as `run` settles. Not `AbortSignal.timeout()`: its timer stays pending
+ * after the request is done, and in a Durable Object a pending timer stops
+ * hibernation.
+ */
+export async function withTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error(`Timed out after ${ms} ms`)), ms)
+  try {
+    return await run(controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}

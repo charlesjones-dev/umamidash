@@ -18,7 +18,7 @@ export async function fetchActiveVisitors(
   budget?: CallBudget,
 ): Promise<number> {
   const data = await client.get(`/api/websites/${encodeURIComponent(websiteId)}/active`, budget)
-  return isRecord(data) && typeof data.visitors === 'number' ? data.visitors : 0
+  return isRecord(data) ? toCount(data.visitors) : 0
 }
 
 export async function fetchRealtimeSummary(
@@ -122,10 +122,10 @@ export function buildHourlySeries(data: unknown, now: number, timeZone: string):
   const sparse = new Map<string, number>()
   const buckets = isRecord(data) && Array.isArray(data.sessions) ? data.sessions : []
   for (const bucket of buckets) {
-    if (!isRecord(bucket) || typeof bucket.y !== 'number') continue
+    if (!isRecord(bucket)) continue
     const date = new Date(typeof bucket.x === 'string' ? bucket.x : Number.NaN)
     if (Number.isNaN(date.getTime())) continue
-    sparse.set(hourKey(date), bucket.y)
+    sparse.set(hourKey(date), toCount(bucket.y))
   }
 
   const series: SeriesPoint[] = []
@@ -134,4 +134,10 @@ export function buildHourlySeries(data: unknown, now: number, timeZone: string):
     series.push({ x: t.toISOString(), y: sparse.get(hourKey(t)) ?? 0 })
   }
   return series
+}
+
+/** A count from Umami, which may come as a number or a numeric string. */
+function toCount(value: unknown): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  return Number.isFinite(n) ? n : 0
 }

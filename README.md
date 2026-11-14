@@ -107,7 +107,7 @@ The Worker needs no server of your own. On the Workers Free plan it fits well in
    - For the workers.dev address: Workers & Pages → `umamidash` → Settings → Domains & Routes → workers.dev → Enable Cloudflare Access.
    - For your own host name: add a route or custom domain in the dashboard, and a self-hosted Access application for that host name.
 
-   Then let the Worker check the Access token too, by setting the secrets `ACCESS_AUD` (the application's Audience (AUD) tag) and `ACCESS_TEAM_DOMAIN` (such as `yourteam.cloudflareaccess.com`). If an Access policy bypasses Access for some IP addresses, list them in `HOME_IPS`, because a bypassed request carries no token. `GET /api/health` stays open for uptime monitors.
+   Then let the Worker check the Access token too, by setting the secrets `ACCESS_AUD` (the application's Audience (AUD) tag) and `ACCESS_TEAM_DOMAIN` (such as `yourteam.cloudflareaccess.com`). If an Access policy bypasses Access for some IP addresses, list them in `HOME_IPS`, because a bypassed request carries no token. `HOME_IPS` matches exact addresses only, with no ranges, so it doesn't suit an IPv6 prefix that changes. `GET /api/health` stays open for uptime monitors.
 
 5. Optional: deploy on every push with [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/). Connect the repository in the Worker's Settings → Builds, with build command `pnpm build` and deploy command `npx wrangler deploy --env=""`.
 
@@ -124,7 +124,8 @@ If Umami runs as a Worker in the same Cloudflare account, use a [service binding
 - One Durable Object, `RealtimeHub`, serves every browser. It polls only while a browser is connected, and stops when the last one leaves.
 - It logs in on an alarm of its own, then fetches the active count and realtime data of every site each poll interval, and the 24-hour series every 5 minutes. One alarm makes at most 25 calls to Umami, because a Worker may make 32 calls to a service binding per invocation. Work that doesn't fit runs on the next alarm, 1 second later. With 11 websites, the first poll makes 25 calls and the next one 8, then each poll makes 22.
 - It keeps the Umami token, the latest data and the geocoding cache in its SQLite storage, so they survive hibernation. One map request makes at most 20 Nominatim requests; the places left over are looked up on the next request.
-- Each poll writes one row to storage. At the default 5-second interval that is about 17,000 rows a day, well inside the Free plan's 100,000.
+- A failed call doesn't make the hub retry sooner: that site is tried again on the next poll. Each call to Umami or Nominatim gives up after 10 seconds.
+- Each poll writes two rows to storage: the data and the next alarm. At the default 5-second interval that is about 35,000 rows a day, inside the Free plan's 100,000. On the Free plan, keep `POLL_INTERVAL_MS` at 2000 or more.
 
 ## Run on Node.js
 
@@ -146,6 +147,8 @@ pnpm dev
 ```
 
 Open `http://localhost:5173` in your browser.
+
+**Upgrading from an earlier version:** `server.js` now imports `core/` and `src/lib/`, and needs Node.js 22.18 or newer to run their TypeScript directly. Copy the whole repository to the host (an image that holds only `server.js` and `dist/` no longer starts). A `POLL_INTERVAL_MS` under 1000 now counts as 1000.
 
 To deploy it:
 
@@ -171,7 +174,7 @@ Set the environment variables below on the host, or inject them with Doppler. Th
 | `PORT` | Node server port | `3000` |
 | `ACCESS_AUD` | Worker only: Cloudflare Access application AUD tag. With `ACCESS_TEAM_DOMAIN`, turns the token check on | unset: no check |
 | `ACCESS_TEAM_DOMAIN` | Worker only: Access team domain, such as `yourteam.cloudflareaccess.com` | unset: no check |
-| `HOME_IPS` | Worker only: comma-separated IPs that an Access bypass policy lets through without a token | unset |
+| `HOME_IPS` | Worker only: comma-separated IPs (exact addresses) that an Access bypass policy lets through without a token | unset |
 
 Get your website IDs from Umami dashboard: Settings, then Websites.
 

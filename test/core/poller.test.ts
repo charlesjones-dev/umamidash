@@ -123,7 +123,7 @@ describe('RealtimePoller with a cap of 25 calls per tick', () => {
     h.clock.advance(CATCH_UP_DELAY_MS)
     await tick(h, p)
 
-    h.clock.advance(POLL_MS)
+    h.clock.advance(2 * 60_000) // the token is no longer fresh, as after an Umami restart
     h.stub.revokeToken()
     const dropped = await tick(h, p)
     expect(dropped.calls).toBeLessThanOrEqual(CAP)
@@ -151,6 +151,38 @@ describe('RealtimePoller with a cap of 25 calls per tick', () => {
     expect(failed.errors).toHaveLength(1)
     expect(failed.snapshot).toEqual(ok.snapshot)
     expect(failed.nextDelayMs).toBe(POLL_MS)
+  })
+
+  it('waits a full interval after failures instead of catching up every second', async () => {
+    const h = harness()
+    const p = poller(h, 11)
+    await tick(h, p)
+    h.stub.failNext(500, 1000) // Umami fails every data call from now on
+
+    const first = await tick(h, p)
+    expect(first.calls).toBe(25)
+    expect(first.nextDelayMs).toBe(CATCH_UP_DELAY_MS) // 8 series never tried
+
+    h.clock.advance(CATCH_UP_DELAY_MS)
+    const second = await tick(h, p)
+    expect(second.calls).toBe(8) // only the series not yet tried
+    expect(second.nextDelayMs).toBe(POLL_MS)
+
+    h.clock.advance(CATCH_UP_DELAY_MS)
+    const early = await tick(h, p)
+    expect(early.calls).toBe(0) // nothing failed is due again before the interval
+    expect(early.snapshot).toEqual([])
+  })
+
+  it('does not log in again for a 401 on a fresh token', async () => {
+    const h = harness()
+    const p = poller(h, 11)
+    await tick(h, p)
+    h.stub.revokeToken() // every data call now answers 401, seconds after the login
+    const result = await tick(h, p)
+    expect(h.stub.calls).not.toContain('/api/auth/login')
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.calls).toBeLessThanOrEqual(CAP)
   })
 
   it('waits and retries on a 429, inside the cap', async () => {

@@ -70,6 +70,16 @@ describe('Geocoder', () => {
     expect(nominatim.requests).toHaveLength(requestsSoFar)
   })
 
+  it('does not cache a fallback found after a failed, more specific query', async () => {
+    const clock = fakeClock()
+    const nominatim = fakeNominatim(clock, (p) => (p.has('city') ? new Response('busy', { status: 503 }) : found()))
+    const cache = memoryGeocodeCache()
+    const geocoder = new Geocoder({ cache, clock, fetch: nominatim.fetch })
+    const result = await geocoder.lookup({ country: 'US', region: 'US-GA', city: 'Atlanta' }, new CallBudget(10))
+    expect(result).toEqual({ lat: 33.75, lng: -84.39 })
+    expect(cache.get('US:US-GA:Atlanta')).toBeUndefined()
+  })
+
   it('stops at the budget and caches nothing for the place it cut short', async () => {
     const clock = fakeClock()
     const nominatim = fakeNominatim(clock, () => Response.json([]))

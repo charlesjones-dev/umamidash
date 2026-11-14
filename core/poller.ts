@@ -23,6 +23,13 @@ interface SiteState {
   realtimeAt: number
   /** Start of the tick that last fetched the 24-hour series, or 0. */
   seriesAt: number
+  /**
+   * Start of the tick that last tried the realtime data or the series, even
+   * if the try failed. Due-ness counts from these, so a failing site waits a
+   * full interval instead of being tried again on every catch-up tick.
+   */
+  realtimeTriedAt?: number
+  seriesTriedAt?: number
   visitors: number
   countries: CountryData[]
   urls: UrlData[]
@@ -125,16 +132,21 @@ export class RealtimePoller {
     let budgetSpent = skipped
 
     const outcomes = await Promise.allSettled(jobs.map((job) => this.#run(job, state, now, budget)))
+    let tried = false
     outcomes.forEach((outcome, i) => {
-      if (outcome.status === 'fulfilled') return
-      if (outcome.reason instanceof CallBudgetExhausted) {
+      const job = jobs[i]
+      // A call the budget refused was never tried: it stays due for the catch-up tick.
+      if (outcome.status === 'rejected' && outcome.reason instanceof CallBudgetExhausted) {
         budgetSpent = true
         return
       }
-      const job = jobs[i]
-      errors.push(`${job.kind} ${job.site.id}: ${errorMessage(outcome.reason)}`)
+      siteState(state, job.site.id)[job.kind === 'realtime' ? 'realtimeTriedAt' : 'seriesTriedAt'] = now
+      tried = true
+      if (outcome.status === 'rejected') {
+        errors.push(`${job.kind} ${job.site.id}: ${errorMessage(outcome.reason)}`)
+      }
     })
-    if (outcomes.some((o) => o.status === 'fulfilled')) this.#options.store.put(STATE_KEY, state)
+    if (tried) this.#options.store.put(STATE_KEY, state)
 
     const nextDelayMs = budgetSpent ? CATCH_UP_DELAY_MS : pollIntervalMs
     return this.#result(budget, false, before, nextDelayMs, errors)
@@ -142,15 +154,16 @@ export class RealtimePoller {
 
   #plan(state: PollerState, now: number, maxCalls: number): { jobs: Job[]; skipped: boolean } {
     const { websites, pollIntervalMs } = this.#options
-    const dueBy = (key: 'realtimeAt' | 'seriesAt', interval: number) =>
+    const triedAt = (id: string, key: 'realtimeTriedAt' | 'seriesTriedAt') => state[id]?.[key] ?? 0
+    const dueBy = (key: 'realtimeTriedAt' | 'seriesTriedAt', interval: number) =>
       websites
-        .filter((site) => now - (state[site.id]?.[key] ?? 0) >= interval - DUE_SLACK_MS)
-        .sort((a, b) => (state[a.id]?.[key] ?? 0) - (state[b.id]?.[key] ?? 0))
+        .filter((site) => now - triedAt(site.id, key) >= interval - DUE_SLACK_MS)
+        .sort((a, b) => triedAt(a.id, key) - triedAt(b.id, key))
 
     const jobs: Job[] = []
     let planned = 0
     let skipped = false
-    for (const site of dueBy('realtimeAt', pollIntervalMs)) {
+    for (const site of dueBy('realtimeTriedAt', pollIntervalMs)) {
       if (planned + REALTIME_CALLS_PER_SITE > maxCalls) {
         skipped = true
         break
@@ -158,7 +171,7 @@ export class RealtimePoller {
       jobs.push({ kind: 'realtime', site })
       planned += REALTIME_CALLS_PER_SITE
     }
-    for (const site of dueBy('seriesAt', this.#seriesIntervalMs)) {
+    for (const site of dueBy('seriesTriedAt', this.#seriesIntervalMs)) {
       if (planned + 1 > maxCalls) {
         skipped = true
         break

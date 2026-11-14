@@ -110,7 +110,9 @@ export class RealtimeHub extends DurableObject<Env> {
         `tick calls=${result.calls} ms=${ms} browsers=${browsers} changed=${result.changed}` +
           (result.loginOnly ? ' login' : ''),
       )
-      for (const error of result.errors) console.error('Poll error:', error)
+      if (result.errors.length > 0) {
+        console.error(`Poll errors (${result.errors.length}): ${result.errors.join('; ')}`)
+      }
     } catch (err) {
       console.error('Poll error:', errorMessage(err))
     }
@@ -157,6 +159,7 @@ export class RealtimeHub extends DurableObject<Env> {
       password: settings.password,
       store,
       clock: systemClock,
+      rateLimitRetries: 0,
     })
     const poller = new RealtimePoller({
       client,
@@ -179,13 +182,14 @@ function payloadOf(snapshot: unknown[]): string {
 
 /**
  * The service binding when one is bound, else `fetch` to UMAMI_API_ENDPOINT.
- * Calls through the binding use an https:// URL on the public Umami host, so
- * the Worker behind the binding sees the same URL a browser would.
+ * Calls through the binding use the public Umami URL with https://, so the
+ * Worker behind the binding sees the same URL a browser would.
  */
 export function umamiTransport(env: Env, settings: Settings): UmamiTransport {
   const binding = env.UMAMI
   if (binding) {
-    const base = `https://${new URL(settings.umamiPublicUrl).host}`
+    const publicUrl = new URL(settings.umamiPublicUrl)
+    const base = `https://${publicUrl.host}${publicUrl.pathname.replace(/\/+$/, '')}`
     return (path, init) => binding.fetch(new Request(`${base}${path}`, init))
   }
   const endpoint = settings.umamiApiEndpoint

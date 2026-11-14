@@ -22,6 +22,7 @@ if (!parsed.ok) {
   for (const error of parsed.errors) console.error(error)
   process.exit(1)
 }
+for (const warning of parsed.warnings) console.warn(warning)
 const settings = parsed.settings
 const endpoint = /** @type {string} */ (settings.umamiApiEndpoint)
 
@@ -63,7 +64,9 @@ async function poll() {
   let nextDelayMs = settings.pollIntervalMs
   try {
     const result = await poller.tick()
-    for (const error of result.errors) console.error('Poll error:', error)
+    if (result.errors.length > 0) {
+      console.error(`Poll errors (${result.errors.length}): ${result.errors.join('; ')}`)
+    }
     nextDelayMs = result.nextDelayMs
     if (result.changed) {
       const payload = payloadOf(result.snapshot)

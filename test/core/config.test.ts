@@ -40,11 +40,34 @@ describe('parseSettings', () => {
     })
   })
 
-  it('rejects invalid websites JSON and a poll interval under 1 second', () => {
-    const result = parseSettings({ ...base, UMAMI_WEBSITES: '{nope', POLL_INTERVAL_MS: '200' })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.errors).toHaveLength(2)
+  it('rejects invalid websites JSON, with its own message for the wrong shape', () => {
+    const invalid = parseSettings({ ...base, UMAMI_WEBSITES: '{nope' })
+    expect(invalid.ok === false && invalid.errors[0]).toMatch(/not valid JSON/)
+    const shape = parseSettings({ ...base, UMAMI_WEBSITES: '[{"name":"no id"}]' })
+    expect(shape.ok === false && shape.errors[0]).toMatch(/string "id"/)
+  })
+
+  it('keeps accepting what server.js accepted before', () => {
+    const result = parseSettings({
+      ...base,
+      UMAMI_PUBLIC_URL: '//analytics.example',
+      UMAMI_PASSWORD: ' secret with spaces ',
+      UMAMI_WEBSITES: '[{"id":"a"}]',
+      GRID_COLUMNS: '3px',
+      GRID_ROWS: '2.5',
+      POLL_INTERVAL_MS: '500',
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.settings).toMatchObject({
+      umamiPublicUrl: '//analytics.example',
+      password: ' secret with spaces ',
+      websites: [{ id: 'a', name: 'a' }],
+      columns: 3,
+      rows: 2,
+      pollIntervalMs: 1000,
+    })
+    expect(result.warnings).toEqual(['POLL_INTERVAL_MS=500 is below 1000; using 1000'])
   })
 
   it('lets a Worker with a service binding go without UMAMI_API_ENDPOINT', () => {

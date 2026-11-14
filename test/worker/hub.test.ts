@@ -42,7 +42,7 @@ interface Browser {
 
 async function connect(): Promise<Browser> {
   const res = await exports.default.fetch(`${ORIGIN}/api/realtime/stream`, {
-    headers: { Upgrade: 'websocket' },
+    headers: { Upgrade: 'websocket', Origin: ORIGIN },
   })
   expect(res.status).toBe(101)
   const socket = res.webSocket!
@@ -138,6 +138,15 @@ describe('Worker API', () => {
     expect(config.pollInterval).toBe(15000)
     expect(config.websites).toHaveLength(11)
     expect(config.umamiUrl).toBe('https://analytics.example.test')
+  })
+
+  it('refuses a WebSocket from another origin, and HEAD on the stream', async () => {
+    const foreign = await exports.default.fetch(`${ORIGIN}/api/realtime/stream`, {
+      headers: { Upgrade: 'websocket', Origin: 'https://evil.example.test' },
+    })
+    expect(foreign.status).toBe(403)
+    const head = await exports.default.fetch(`${ORIGIN}/api/realtime/stream`, { method: 'HEAD' })
+    expect(head.status).toBe(405)
   })
 
   it('refuses the sessions of a website it does not show', async () => {

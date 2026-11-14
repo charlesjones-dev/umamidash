@@ -68,6 +68,7 @@ export async function isAllowed(request: Request, policy: AccessPolicy): Promise
     await jwtVerify(token, keySet(policy.issuer), {
       issuer: policy.issuer,
       audience: policy.audience,
+      algorithms: ['RS256'],
     })
     return true
   } catch (err) {
